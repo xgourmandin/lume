@@ -1,0 +1,28 @@
+# IDEs
+.idea/
+.vscode/
+
+# Node
+node_modules/
+.npm/
+
+# Go
+bin/
+
+# Next.js
+.next/
+out/
+build/
+
+# Tofu
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.backup
+
+# Env
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
