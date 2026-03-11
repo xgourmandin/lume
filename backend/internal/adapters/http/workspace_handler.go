@@ -19,6 +19,9 @@ func (h *WorkspaceHandler) Register(app *mach.App) {
 	app.POST("/api/v1/hierarchy/sync", h.SyncHierarchy)
 }
 
+// GetHierarchy returns the fully merged hierarchy for a workspace.
+// Every node in the response carries a layer_id field identifying which
+// Terraform layer it was parsed from. Frontend filtering is done client-side.
 func (h *WorkspaceHandler) GetHierarchy(c *mach.Context) {
 	id := c.Param("id")
 
@@ -34,6 +37,7 @@ func (h *WorkspaceHandler) GetHierarchy(c *mach.Context) {
 func (h *WorkspaceHandler) SyncHierarchy(c *mach.Context) {
 	var body struct {
 		WorkspaceID string `json:"workspace_id"`
+		LayerID     string `json:"layer_id"`
 		Bucket      string `json:"bucket"`
 		Object      string `json:"object"`
 	}
@@ -43,12 +47,14 @@ func (h *WorkspaceHandler) SyncHierarchy(c *mach.Context) {
 		return
 	}
 
-	// Default to "default" workspace if not provided
 	if body.WorkspaceID == "" {
 		body.WorkspaceID = "default"
 	}
+	if body.LayerID == "" {
+		body.LayerID = "default"
+	}
 
-	org, err := h.service.SyncWorkspace(c.Request.Context(), body.WorkspaceID, body.Bucket, body.Object)
+	org, err := h.service.SyncWorkspace(c.Request.Context(), body.WorkspaceID, body.LayerID, body.Bucket, body.Object)
 	if err != nil {
 		c.JSON(500, map[string]string{"error": err.Error()})
 		return
