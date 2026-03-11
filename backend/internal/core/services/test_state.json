@@ -1,0 +1,47 @@
+{
+  "resources": [
+    {
+      "address": "module.hierarchy.google_folder.parent",
+      "type": "google_folder",
+      "name": "parent",
+      "instances": [
+        {
+          "attributes": {
+            "id": "1234567890",
+            "display_name": "Engineering",
+            "parent": "organizations/9876543210"
+          }
+        }
+      ]
+    },
+    {
+      "address": "module.hierarchy.google_folder.child",
+      "type": "google_folder",
+      "name": "child",
+      "instances": [
+        {
+          "attributes": {
+            "id": "2345678901",
+            "display_name": "Platforms",
+            "parent": "folders/1234567890"
+          }
+        }
+      ]
+    },
+    {
+      "address": "module.hierarchy.google_project.lume_dev",
+      "type": "google_project",
+      "name": "lume_dev",
+      "instances": [
+        {
+          "attributes": {
+            "id": "lume-dev-project",
+            "project_id": "lume-dev-123",
+            "display_name": "Lume Development",
+            "parent": "folders/2345678901"
+          }
+        }
+      ]
+    }
+  ]
+}

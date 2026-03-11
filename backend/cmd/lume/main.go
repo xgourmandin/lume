@@ -3,24 +3,33 @@ package main
 import (
 	"context"
 	"log"
+	"os"
 
+	"github.com/lume/backend/internal/adapters/http"
+	"github.com/lume/backend/internal/adapters/repositories"
+	"github.com/lume/backend/internal/core/ports"
+	"github.com/lume/backend/internal/core/services"
 	"github.com/mrshabel/mach"
 	"go.uber.org/fx"
 )
 
 // NewServer initializes the Mach application.
-func NewServer() *mach.App {
+func NewServer(webhookHandler *http.WebhookHandler, workspaceHandler *http.WorkspaceHandler) *mach.App {
 	app := mach.New()
 
 	app.Use(mach.Logger())
 	app.Use(mach.Recovery())
 
-	// Basic health check route
+	app.Use(mach.CORS([]string{"*"}))
+
+	// Basic health check
 	app.GET("/health", func(c *mach.Context) {
-		c.JSON(200, map[string]string{
-			"status": "ok",
-		})
+		c.JSON(200, map[string]string{"status": "ok"})
 	})
+
+	// Register adapters
+	webhookHandler.Register(app)
+	workspaceHandler.Register(app)
 
 	return app
 }
@@ -29,7 +38,7 @@ func NewServer() *mach.App {
 func StartServer(lc fx.Lifecycle, app *mach.App) {
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
-			log.Println("Starting Mach server on :3000")
+			log.Println("Starting Lume API on :3000")
 			go func() {
 				if err := app.Run(":3000"); err != nil {
 					log.Fatalf("Server failed to start: %v", err)
@@ -38,7 +47,7 @@ func StartServer(lc fx.Lifecycle, app *mach.App) {
 			return nil
 		},
 		OnStop: func(ctx context.Context) error {
-			log.Println("Stopping Mach server...")
+			log.Println("Stopping Lume API...")
 			return nil
 		},
 	})
@@ -47,8 +56,22 @@ func StartServer(lc fx.Lifecycle, app *mach.App) {
 func main() {
 	app := fx.New(
 		fx.Provide(
+			// Adapters
+			repositories.NewGCSDownloader,
+			repositories.NewFirestoreWorkspaceRepository,
+			func() ports.GitProvider {
+				return repositories.NewGitHubProvider(os.Getenv("GITHUB_TOKEN"))
+			},
+			http.NewWebhookHandler,
+			http.NewWorkspaceHandler,
+
+			// Core Services
+			services.NewTofuParser,
+			services.NewTofuService,
+			services.NewProjectVendingService,
+
+			// Server
 			NewServer,
-			// Future providers: Repositories, Services, Adapters...
 		),
 		fx.Invoke(StartServer),
 	)
