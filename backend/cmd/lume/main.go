@@ -3,11 +3,9 @@ package main
 import (
 	"context"
 	"log"
-	"os"
 
 	"github.com/lume/backend/internal/adapters/http"
 	"github.com/lume/backend/internal/adapters/repositories"
-	"github.com/lume/backend/internal/core/ports"
 	"github.com/lume/backend/internal/core/services"
 	"github.com/mrshabel/mach"
 	"go.uber.org/fx"
@@ -59,16 +57,12 @@ func main() {
 			// Adapters
 			repositories.NewGCSDownloader,
 			repositories.NewFirestoreWorkspaceRepository,
-			func() ports.GitProvider {
-				return repositories.NewGitHubProvider(os.Getenv("GITHUB_TOKEN"))
-			},
 			http.NewWebhookHandler,
 			http.NewWorkspaceHandler,
 
 			// Core Services
 			services.NewTofuParser,
 			services.NewTofuService,
-			services.NewProjectVendingService,
 
 			// Server
 			NewServer,

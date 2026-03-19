@@ -2,7 +2,7 @@
 
 ## 1. Overview
 Lume is a specialized internal platform for GCP Platform Teams. It provides a "Single Pane of Glass" for Landing Zones managed by OpenTofu/Terraform.
-The goal is to move away from "opaque" state files and provide a human-friendly, hierarchy-aware view of the cloud environment, detect manual "ClickOps" drift, and safely onboard new projects via GitOps.
+The goal is to move away from "opaque" state files and provide a human-friendly, hierarchy-aware view of the cloud environment, and detect manual "ClickOps" drift.
 
 ## 2. Tech Stack
 
@@ -33,10 +33,6 @@ The goal is to move away from "opaque" state files and provide a human-friendly,
   * **DRIFTED**: Manual changes detected.
   * **ERROR**: Plan failed to execute.
 
-### C. Project Vending Machine (Onboarding)
-* A guided form to request a new GCP Project.
-* Logic: The backend clones a specified GitHub/GitLab repository, creates a new `.tf` file from a template, and opens a Pull Request.
-* No direct 'Apply': All changes must go through the existing CI/CD pipeline.
 
 ## 4. Architectural Patterns for the Agent
 
@@ -44,7 +40,7 @@ The goal is to move away from "opaque" state files and provide a human-friendly,
 All modules (HTTP handlers, Services, Repositories) must be wired using `fx.Provide`. The application lifecycle (Start/Stop) should be managed via `fx.Invoke`.
 
 ### API Structure (Mach Framework)
-* Use group-based routing (e.g., `/api/v1/hierarchy`, `/api/v1/projects`).
+* Use group-based routing (e.g., `/api/v1/hierarchy`).
 * Middleware for Google Identity (IAP) header validation.
 
 ### Data Model (Firestore)
@@ -62,8 +58,7 @@ All modules (HTTP handlers, Services, Repositories) must be wired using `fx.Prov
 > * **Phase 1 (Core)**: Initialize the Go project with `uber-go/fx` and `mach`. Setup the basic HTTP server structure.
 > * **Phase 2 (Parser)**: Create a service that accepts a Tofu JSON state and outputs a nested Folder tree structure.
 > * **Phase 3 (GCP Integration)**: Implement a client to read objects from GCS buckets.
-> * **Phase 4 (Frontend)**: Build a recursive Tree component in Next.js to render the hierarchy.
-> * **Phase 5 (GitOps)**: Build the PR generator service using the GitHub/GitLab API.
+  * **Phase 4 (Frontend)**: Build a recursive Tree component in Next.js to render the hierarchy.
 
 ## 6. Security Requirements
 * **Service Accounts**: The scanner requires `roles/viewer` at the Org level and `roles/storage.objectViewer` on the Tofu state bucket.

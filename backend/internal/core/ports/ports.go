@@ -31,8 +31,3 @@ type WorkspaceRepository interface {
 type TofuService interface {
 	SyncWorkspace(ctx context.Context, workspaceID, layerID, bucket, object string) (*domain.Organization, error)
 }
-
-// GitProvider defines the interface for interacting with VCS systems.
-type GitProvider interface {
-	CreatePullRequest(ctx context.Context, repo, branch, title, body string, files map[string]string) (string, error)
-}

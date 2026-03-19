@@ -473,9 +473,6 @@ export default function Home() {
               <h3 className="font-semibold text-white">Quick Actions</h3>
             </div>
             <div className="grid grid-cols-1 gap-2">
-              <button className="text-left w-full px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 text-sm transition-colors">
-                New Project Request
-              </button>
               <button className="text-left w-full px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 text-sm transition-colors text-white/60">
                 View Drift Reports
               </button>
