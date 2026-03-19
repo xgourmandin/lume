@@ -41,7 +41,7 @@ type tfResource struct {
 // Parse converts raw Terraform state JSON into a GCP hierarchy tree.
 // Every node is stamped with both layerID and tfWorkspaceID so the UI can
 // filter and show workspace-level provenance without additional round-trips.
-func (p *TofuParser) Parse(ctx context.Context, stateData []byte, layerID, tfWorkspaceID string) (*domain.Organization, error) {
+func (p *TofuParser) Parse(_ context.Context, stateData []byte, layerID, tfWorkspaceID string) (*domain.Organization, error) {
 	var state tfState
 	if err := json.Unmarshal(stateData, &state); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal state: %w", err)

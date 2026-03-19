@@ -13,7 +13,7 @@ import type { Organization, Workspace, SyncRequest } from '@/types';
 // ---------------------------------------------------------------------------
 
 const BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') ?? 'http://localhost:8080';
+  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') ?? 'http://localhost:3000';
 
 // ---------------------------------------------------------------------------
 // Helpers

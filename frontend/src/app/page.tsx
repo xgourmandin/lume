@@ -514,19 +514,6 @@ export default function Home() {
               setSelectedNode(null);
             }}
           />
-
-          {/* Quick actions */}
-          <div className="p-6 bg-white/5 border border-white/10 rounded-2xl">
-            <div className="flex items-center gap-3 mb-4">
-              <Layers className="w-5 h-5 text-emerald-400" />
-              <h3 className="font-semibold text-white">Quick Actions</h3>
-            </div>
-            <div className="grid grid-cols-1 gap-2">
-              <button className="text-left w-full px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 text-sm transition-colors text-white/60">
-                View Drift Reports
-              </button>
-            </div>
-          </div>
         </div>
 
         {/* Center — Hierarchy + Detail */}

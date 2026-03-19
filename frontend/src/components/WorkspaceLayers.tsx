@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Layers, CheckCircle2, AlertTriangle, XCircle, Clock, ChevronDown, ChevronRight, GitBranch } from 'lucide-react';
+import { Layers, CheckCircle2, AlertTriangle, XCircle, Clock, ChevronDown, GitBranch, Search } from 'lucide-react';
 import type { Workspace, Layer, TerraformWorkspace, SyncStatus } from '@/types';
 
 // ---------------------------------------------------------------------------
@@ -50,57 +50,195 @@ function formatDate(iso: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// WorkspaceRow — one Terraform workspace within a layer
+// WorkspaceComboBox — compact multi-select combo box for a layer's workspaces
 // ---------------------------------------------------------------------------
 
-interface WorkspaceRowProps {
-  ws: TerraformWorkspace;
-  isSelected: boolean;
-  onToggle: () => void;
+interface WorkspaceComboBoxProps {
+  workspaces: TerraformWorkspace[];
+  selectedIds: Set<string>;
+  onToggle: (ws: TerraformWorkspace) => void;
 }
 
-const WorkspaceRow: React.FC<WorkspaceRowProps> = ({ ws, isSelected, onToggle }) => {
-  const cfg = statusConfig[ws.status] ?? statusConfig.clean;
+const WorkspaceComboBox: React.FC<WorkspaceComboBoxProps> = ({ workspaces, selectedIds, onToggle }) => {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const containerRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setQuery('');
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  // Close on Escape
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { setOpen(false); setQuery(''); }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [open]);
+
+  // Auto-focus search input when dropdown opens (only when search is shown)
+  useEffect(() => {
+    if (open && workspaces.length > 5) {
+      setTimeout(() => searchRef.current?.focus(), 50);
+    }
+  }, [open, workspaces.length]);
+
+  const filtered = query.trim()
+    ? workspaces.filter(ws => ws.id.toLowerCase().includes(query.toLowerCase()))
+    : workspaces;
+
+  const selectedInLayer = workspaces.filter(ws => selectedIds.has(ws.id));
+  const selectedCount = selectedInLayer.length;
+  const allSelected = selectedCount === workspaces.length;
+  const isFiltered = selectedCount > 0 && !allSelected;
+
+  // Trigger label
+  let triggerLabel: string;
+  if (selectedCount === 0 || allSelected) {
+    triggerLabel = 'All workspaces';
+  } else if (selectedCount === 1) {
+    triggerLabel = selectedInLayer[0].id;
+  } else {
+    triggerLabel = `${selectedCount} of ${workspaces.length} selected`;
+  }
+
   return (
-    <button
-      onClick={onToggle}
-      className={`w-full text-left flex items-center gap-2 pl-7 pr-3 py-1.5 rounded-lg border transition-all
-        ${isSelected
-          ? 'bg-violet-500/10 border-violet-500/30 ring-1 ring-inset ring-violet-500/20'
-          : 'bg-transparent border-transparent hover:bg-white/5 hover:border-white/5'}`}
-    >
-      {/* checkbox */}
-      <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 transition-all
-        ${isSelected ? 'bg-violet-500 border-violet-500' : 'border-white/20 bg-transparent'}`}>
-        {isSelected && (
-          <svg className="w-2 h-2 text-white" viewBox="0 0 10 10" fill="none">
-            <path d="M1.5 5L4 7.5L8.5 2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        )}
-      </span>
-
-      <GitBranch className="w-3 h-3 text-violet-400/60 shrink-0" />
-
-      <span className={`text-[11px] font-mono font-medium truncate flex-1
-        ${isSelected ? 'text-violet-200' : 'text-white/50'}`}>
-        {ws.id}
-      </span>
-
-      {/* status dot */}
-      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${cfg.dot}`} />
-
-      {/* non-clean status badge */}
-      {ws.status !== 'clean' && (
-        <span className={`flex items-center gap-0.5 text-[9px] font-semibold uppercase px-1.5 py-0.5 rounded-full border ${cfg.pill} shrink-0`}>
-          {ws.status}
+    <div ref={containerRef} className="relative">
+      {/* Trigger button */}
+      <button
+        onClick={() => setOpen(o => !o)}
+        className={`w-full flex items-center gap-1.5 px-2 py-1.5 rounded-lg border text-[11px] transition-all
+          ${open
+            ? 'bg-white/10 border-violet-500/40 ring-1 ring-inset ring-violet-500/20'
+            : isFiltered
+            ? 'bg-violet-500/10 border-violet-500/30 hover:bg-violet-500/15'
+            : 'bg-white/5 border-white/10 hover:bg-white/8 hover:border-white/20'}`}
+      >
+        <GitBranch className={`w-3 h-3 shrink-0 ${isFiltered ? 'text-violet-400' : 'text-white/30'}`} />
+        <span className={`flex-1 text-left font-mono truncate
+          ${isFiltered ? 'text-violet-200' : 'text-white/45'}`}>
+          {triggerLabel}
         </span>
-      )}
-    </button>
+        {isFiltered && (
+          <span className="text-[9px] font-bold bg-violet-500/25 text-violet-300 border border-violet-500/30 px-1.5 py-0.5 rounded-full shrink-0">
+            {selectedCount}
+          </span>
+        )}
+        <ChevronDown className={`w-3 h-3 text-white/30 shrink-0 transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {/* Dropdown */}
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: -6, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -6, scale: 0.97 }}
+            transition={{ duration: 0.13, ease: 'easeOut' }}
+            className="absolute z-50 top-full mt-1.5 left-0 right-0 bg-slate-900 border border-white/12 rounded-xl shadow-2xl shadow-black/60 overflow-hidden"
+          >
+            {/* Search — shown when there are more than 5 workspaces */}
+            {workspaces.length > 5 && (
+              <div className="px-2 pt-2 pb-1.5 border-b border-white/8">
+                <div className="flex items-center gap-1.5 bg-white/5 border border-white/10 rounded-lg px-2 py-1 focus-within:border-violet-500/40 transition-colors">
+                  <Search className="w-3 h-3 text-white/30 shrink-0" />
+                  <input
+                    ref={searchRef}
+                    type="text"
+                    placeholder="Filter workspaces…"
+                    value={query}
+                    onChange={e => setQuery(e.target.value)}
+                    className="flex-1 bg-transparent text-[11px] text-white placeholder:text-white/30 outline-none"
+                  />
+                </div>
+              </div>
+            )}
+
+            {/* Quick actions */}
+            <div className="flex items-center gap-1 px-2 pt-1.5 pb-1">
+              <button
+                onClick={() => workspaces.forEach(ws => { if (!selectedIds.has(ws.id)) onToggle(ws); })}
+                className="text-[10px] text-violet-400 hover:text-violet-300 transition-colors px-1.5 py-0.5 rounded hover:bg-violet-500/10"
+              >
+                Select all
+              </button>
+              <span className="text-white/15 text-[10px]">·</span>
+              <button
+                onClick={() => workspaces.forEach(ws => { if (selectedIds.has(ws.id)) onToggle(ws); })}
+                className="text-[10px] text-white/35 hover:text-white/60 transition-colors px-1.5 py-0.5 rounded hover:bg-white/5"
+              >
+                Clear
+              </button>
+            </div>
+
+            {/* Options list */}
+            <div className="max-h-52 overflow-y-auto py-1 px-1.5 space-y-0.5">
+              {filtered.length === 0 ? (
+                <p className="text-[11px] text-white/30 text-center py-3">No workspaces match</p>
+              ) : (
+                filtered.map(ws => {
+                  const cfg = statusConfig[ws.status] ?? statusConfig.clean;
+                  const sel = selectedIds.has(ws.id);
+                  return (
+                    <button
+                      key={ws.id}
+                      onClick={() => onToggle(ws)}
+                      className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg border transition-all text-left
+                        ${sel
+                          ? 'bg-violet-500/10 border-violet-500/30'
+                          : 'bg-transparent border-transparent hover:bg-white/5 hover:border-white/8'}`}
+                    >
+                      {/* Checkbox */}
+                      <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 transition-all
+                        ${sel ? 'bg-violet-500 border-violet-500' : 'border-white/20 bg-transparent'}`}>
+                        {sel && (
+                          <svg className="w-2 h-2 text-white" viewBox="0 0 10 10" fill="none">
+                            <path d="M1.5 5L4 7.5L8.5 2.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                          </svg>
+                        )}
+                      </span>
+
+                      {/* Status dot */}
+                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${cfg.dot}`} />
+
+                      {/* Name */}
+                      <span className={`text-[11px] font-mono flex-1 truncate
+                        ${sel ? 'text-violet-200' : 'text-white/60'}`}>
+                        {ws.id}
+                      </span>
+
+                      {/* Non-clean badge */}
+                      {ws.status !== 'clean' && (
+                        <span className={`text-[9px] font-semibold uppercase px-1.5 py-0.5 rounded-full border ${cfg.pill} shrink-0`}>
+                          {ws.status}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 };
 
 // ---------------------------------------------------------------------------
-// LayerRow — one layer with expandable workspace list
+// LayerRow — one layer with inline WorkspaceComboBox
 // ---------------------------------------------------------------------------
 
 interface LayerRowProps {
@@ -121,13 +259,12 @@ const LayerRow: React.FC<LayerRowProps> = ({
   const workspaces: TerraformWorkspace[] = layer.workspaces ?? [
     { id: 'default', layer_id: layer.id, status: layer.status, last_sync: layer.last_sync },
   ];
-  const hasMultiple = workspaces.length > 1;
-  const [expanded, setExpanded] = useState(hasMultiple);
 
   const activeWsCount = workspaces.filter(w => selectedWorkspaceIds.has(w.id)).length;
+  const isFiltered = activeWsCount > 0 && activeWsCount < workspaces.length;
 
   return (
-    <div className={`rounded-xl border transition-all overflow-hidden
+    <div className={`rounded-xl border transition-all
       ${isLayerSelected ? 'bg-blue-500/10 border-blue-500/30' : 'bg-white/5 border-white/5'}`}
     >
       {/* Layer header row */}
@@ -157,45 +294,23 @@ const LayerRow: React.FC<LayerRowProps> = ({
           </p>
         </button>
 
-        {activeWsCount > 0 && (
+        {isFiltered && (
           <span className="text-[9px] font-bold bg-violet-500/20 text-violet-300 border border-violet-500/30 px-1.5 py-0.5 rounded-full shrink-0">
             {activeWsCount}w
           </span>
         )}
 
         <StatusBadge status={layer.status} />
-
-        <button
-          onClick={() => setExpanded(e => !e)}
-          className="p-0.5 rounded hover:bg-white/10 transition-colors text-white/30 hover:text-white/60 shrink-0"
-        >
-          {expanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-        </button>
       </div>
 
-      {/* Workspace sub-list */}
-      <AnimatePresence>
-        {expanded && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.18, ease: 'easeInOut' }}
-            className="overflow-hidden border-t border-white/5"
-          >
-            <div className="py-1.5 space-y-0.5">
-              {workspaces.map(ws => (
-                <WorkspaceRow
-                  key={ws.id}
-                  ws={ws}
-                  isSelected={selectedWorkspaceIds.has(ws.id)}
-                  onToggle={() => onToggleWorkspace(ws)}
-                />
-              ))}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Workspace combo box */}
+      <div className="px-3 pb-2.5">
+        <WorkspaceComboBox
+          workspaces={workspaces}
+          selectedIds={selectedWorkspaceIds}
+          onToggle={onToggleWorkspace}
+        />
+      </div>
     </div>
   );
 };

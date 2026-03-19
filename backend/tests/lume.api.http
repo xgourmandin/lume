@@ -1,0 +1,106 @@
+@baseUrl = http://localhost:3000
+
+### GET Health check
+GET {{baseUrl}}/health
+
+### ─────────────────────────────────────────
+### Workspaces
+### ─────────────────────────────────────────
+
+### List all workspaces
+GET {{baseUrl}}/api/v1/workspaces
+
+### Get a workspace by ID
+GET {{baseUrl}}/api/v1/workspaces/lz
+
+### ─────────────────────────────────────────
+### Hierarchy
+### ─────────────────────────────────────────
+
+### Get the merged GCP hierarchy for a workspace
+GET {{baseUrl}}/api/v1/hierarchy/lz
+
+### Sync hierarchy from a GCS state file
+POST {{baseUrl}}/api/v1/hierarchy/sync
+Content-Type: application/json
+
+{
+  "workspace_id": "lz",
+  "layer_id": "apps",
+  "tf_workspace_id": "prod",
+  "bucket": "my-tf-states",
+  "object": "lz/apps/prod.tfstate"
+}
+
+### Sync hierarchy – defaults (omitted IDs fall back to "default")
+POST {{baseUrl}}/api/v1/hierarchy/sync
+Content-Type: application/json
+
+{
+  "bucket": "my-tf-states",
+  "object": "default.tfstate"
+}
+
+### ─────────────────────────────────────────
+### Webhooks – Git
+### ─────────────────────────────────────────
+
+### Git webhook – explicit workspace / layer / tf-workspace
+POST {{baseUrl}}/api/v1/webhooks/git
+Content-Type: application/json
+
+{
+  "workspace_id": "lz",
+  "layer_id": "network",
+  "tf_workspace_id": "prod",
+  "bucket": "my-tf-states",
+  "object": "lz/network/prod.tfstate"
+}
+
+### Git webhook – minimal body (layer + tf_workspace default to "default")
+POST {{baseUrl}}/api/v1/webhooks/git
+Content-Type: application/json
+
+{
+  "workspace_id": "lz",
+  "bucket": "my-tf-states",
+  "object": "lz/default.tfstate"
+}
+
+### ─────────────────────────────────────────
+### Webhooks – GCS (Pub/Sub push)
+### ─────────────────────────────────────────
+### message.data is base64( {"bucket":"my-tf-states","name":"lz/apps/prod.tfstate","eventType":"OBJECT_FINALIZE"} )
+
+### GCS notification – OBJECT_FINALIZE → triggers sync
+POST {{baseUrl}}/api/v1/webhooks/gcs
+Content-Type: application/json
+
+{
+  "message": {
+    "data": "eyJidWNrZXQiOiJteS10Zi1zdGF0ZXMiLCJuYW1lIjoibHovYXBwcy9wcm9kLnRmc3RhdGUiLCJldmVudFR5cGUiOiJPQkpFQ1RfRklOQUxJWkUifQ=="
+  }
+}
+
+### GCS notification – OBJECT_DELETE → ignored (200 {"status":"ignored"})
+### message.data is base64( {"bucket":"my-tf-states","name":"lz/apps/prod.tfstate","eventType":"OBJECT_DELETE"} )
+POST {{baseUrl}}/api/v1/webhooks/gcs
+Content-Type: application/json
+
+{
+  "message": {
+    "data": "eyJidWNrZXQiOiJteS10Zi1zdGF0ZXMiLCJuYW1lIjoibHovYXBwcy9wcm9kLnRmc3RhdGUiLCJldmVudFR5cGUiOiJPQkpFQ1RfREVMRVRFIn0="
+  }
+}
+
+### GCS notification – non-.tfstate file → ignored (200 {"status":"ignored"})
+### message.data is base64( {"bucket":"my-tf-states","name":"lz/apps/plan.out","eventType":"OBJECT_FINALIZE"} )
+POST {{baseUrl}}/api/v1/webhooks/gcs
+Content-Type: application/json
+
+{
+  "message": {
+    "data": "eyJidWNrZXQiOiJteS10Zi1zdGF0ZXMiLCJuYW1lIjoibHovYXBwcy9wbGFuLm91dCIsImV2ZW50VHlwZSI6Ik9CSkVDVF9GSU5BTElaRSJ9"
+  }
+}
+
