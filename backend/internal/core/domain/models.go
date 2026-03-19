@@ -50,6 +50,7 @@ type Folder struct {
 	DisplayName string     `json:"display_name"`
 	Parent      string     `json:"parent"` // organizations/ID or folders/ID
 	LayerID     string     `json:"layer_id,omitempty"`
+	WorkspaceID string     `json:"workspace_id,omitempty"` // Terraform workspace name, e.g. "prod"
 	Folders     []*Folder  `json:"folders,omitempty"`
 	Projects    []*Project `json:"projects,omitempty"`
 }
@@ -93,26 +94,39 @@ type Project struct {
 	DisplayName string      `json:"display_name"`
 	Parent      string      `json:"parent"` // organizations/ID or folders/ID
 	LayerID     string      `json:"layer_id,omitempty"`
+	WorkspaceID string      `json:"workspace_id,omitempty"` // Terraform workspace name, e.g. "prod"
 	Resources   []*Resource `json:"resources,omitempty"`
 }
 
 // Resource represents a leaf GCP resource managed by Terraform.
 type Resource struct {
-	Type    string `json:"type"`
-	Name    string `json:"name"`
-	Address string `json:"address"`
-	ID      string `json:"id"` // Actual GCP Resource ID
-	LayerID string `json:"layer_id,omitempty"`
+	Type        string `json:"type"`
+	Name        string `json:"name"`
+	Address     string `json:"address"`
+	ID          string `json:"id"` // Actual GCP Resource ID
+	LayerID     string `json:"layer_id,omitempty"`
+	WorkspaceID string `json:"workspace_id,omitempty"` // Terraform workspace name, e.g. "prod"
+}
+
+// TerraformWorkspace represents a named Terraform workspace within a layer
+// (e.g. "default", "prod", "staging"). Every state file belongs to exactly
+// one (layerID, workspaceID) pair.
+type TerraformWorkspace struct {
+	ID       string    `json:"id"` // terraform workspace name
+	LayerID  string    `json:"layer_id"`
+	Status   string    `json:"status"` // clean | drifted | error
+	LastSync time.Time `json:"last_sync"`
 }
 
 // Layer represents a single Terraform state layer within a workspace.
 // A workspace is composed of one or more layers (e.g. "org", "network",
-// "projects"), each backed by its own .tfstate file.
+// "projects"), each backed by its own .tfstate file per Terraform workspace.
 type Layer struct {
-	ID       string    `json:"id"`
-	Name     string    `json:"name"`
-	LastSync time.Time `json:"last_sync"`
-	Status   string    `json:"status"` // clean, drifted, error
+	ID         string               `json:"id"`
+	Name       string               `json:"name"`
+	LastSync   time.Time            `json:"last_sync"`
+	Status     string               `json:"status"` // clean, drifted, error
+	Workspaces []TerraformWorkspace `json:"workspaces,omitempty"`
 }
 
 // Workspace represents a Tofu/Terraform workspace metadata.

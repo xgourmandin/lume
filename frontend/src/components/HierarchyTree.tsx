@@ -47,6 +47,23 @@ function filterFoldersByLayer(folders: GCPFolder[], layers: Set<string>): GCPFol
         .filter(Boolean) as GCPFolder[];
 }
 
+// ─── Workspace filtering helpers ──────────────────────────────────────────────
+
+function filterProjectsByWorkspace(projects: Project[], workspaces: Set<string>): Project[] {
+    return projects.filter(p => !p.workspace_id || workspaces.has(p.workspace_id));
+}
+
+function filterFoldersByWorkspace(folders: GCPFolder[], workspaces: Set<string>): GCPFolder[] {
+    return folders
+        .map(f => {
+            const filteredSubFolders = filterFoldersByWorkspace(f.folders ?? [], workspaces);
+            const filteredProjects = filterProjectsByWorkspace(f.projects ?? [], workspaces);
+            if (filteredSubFolders.length === 0 && filteredProjects.length === 0) return null;
+            return { ...f, folders: filteredSubFolders, projects: filteredProjects };
+        })
+        .filter(Boolean) as GCPFolder[];
+}
+
 // ─── Filtering helpers ────────────────────────────────────────────────────────
 
 function matchesQuery(text: string, query: string) {
@@ -137,6 +154,7 @@ interface HierarchyNodeProps {
     children?: React.ReactNode;
     id?: string;
     layerId?: string;
+    workspaceId?: string;
     badge?: string;
     defaultExpanded?: boolean;
     forceExpanded?: boolean;
@@ -152,6 +170,7 @@ const HierarchyNode: React.FC<HierarchyNodeProps> = ({
     children,
     id,
     layerId,
+    workspaceId,
     badge,
     defaultExpanded = false,
     forceExpanded = false,
@@ -222,6 +241,12 @@ const HierarchyNode: React.FC<HierarchyNodeProps> = ({
                     </span>
                 )}
 
+                {workspaceId && workspaceId !== 'default' && (
+                    <span className="pl-2 text-[9px] font-semibold font-mono text-violet-300/70 bg-violet-500/10 border border-violet-500/15 px-1.5 py-0.5 rounded-full inline-flex items-center shrink-0 ml-1">
+                        {workspaceId}
+                    </span>
+                )}
+
                 {type === 'project' && (
                     <div className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity">
                         <ExternalLink className="w-3 h-3 text-white/40 hover:text-white/70" />
@@ -256,22 +281,32 @@ interface HierarchyTreeProps {
     onSelect?: (node: SelectedNode) => void;
     /** Set of layer IDs to filter by. Empty set = show all. */
     selectedLayerIds?: Set<string>;
+    /** Set of Terraform workspace names to filter by (e.g. "prod"). Empty = show all. */
+    selectedWorkspaceIds?: Set<string>;
 }
 
-export const HierarchyTree: React.FC<HierarchyTreeProps> = ({ organization, selectedNode, onSelect, selectedLayerIds }) => {
+export const HierarchyTree: React.FC<HierarchyTreeProps> = ({ organization, selectedNode, onSelect, selectedLayerIds, selectedWorkspaceIds }) => {
     const [searchQuery, setSearchQuery] = useState('');
     const isSearching = searchQuery.trim().length > 0;
     const isLayerFiltering = (selectedLayerIds?.size ?? 0) > 0;
+    const isWorkspaceFiltering = (selectedWorkspaceIds?.size ?? 0) > 0;
 
-    // Apply layer filter first, then text search on top
+    // Apply layer filter, then workspace filter, then text search on top
     const layerFilteredOrg = useMemo<Organization>(() => {
-        const base = !isLayerFiltering || !selectedLayerIds ? organization : {
+        let base: Organization = !isLayerFiltering || !selectedLayerIds ? organization : {
             ...organization,
             folders: filterFoldersByLayer(organization.folders ?? [], selectedLayerIds),
             projects: filterProjectsByLayer(organization.projects ?? [], selectedLayerIds),
         };
+        if (isWorkspaceFiltering && selectedWorkspaceIds) {
+            base = {
+                ...base,
+                folders: filterFoldersByWorkspace(base.folders ?? [], selectedWorkspaceIds),
+                projects: filterProjectsByWorkspace(base.projects ?? [], selectedWorkspaceIds),
+            };
+        }
         return sortOrg(base);
-    }, [organization, selectedLayerIds, isLayerFiltering]);
+    }, [organization, selectedLayerIds, selectedWorkspaceIds, isLayerFiltering, isWorkspaceFiltering]);
 
     const filteredOrg = useMemo<Organization>(() => {
         if (!isSearching) return layerFilteredOrg;
@@ -293,10 +328,19 @@ export const HierarchyTree: React.FC<HierarchyTreeProps> = ({ organization, sele
                     <h2 className="text-lg font-semibold text-white">Infrastructure Hierarchy</h2>
                     <p className="text-xs text-white/40 font-mono uppercase tracking-wider">Landing Zone Observer</p>
                 </div>
-                {isLayerFiltering && (
-                    <span className="ml-auto text-[10px] bg-blue-500/15 text-blue-300 border border-blue-500/20 px-2 py-0.5 rounded-full font-semibold">
-                        {selectedLayerIds!.size} layer{selectedLayerIds!.size > 1 ? 's' : ''} active
-                    </span>
+                {(isLayerFiltering || isWorkspaceFiltering) && (
+                    <div className="ml-auto flex items-center gap-1.5">
+                        {isLayerFiltering && (
+                            <span className="text-[10px] bg-blue-500/15 text-blue-300 border border-blue-500/20 px-2 py-0.5 rounded-full font-semibold">
+                                {selectedLayerIds!.size} layer{selectedLayerIds!.size > 1 ? 's' : ''}
+                            </span>
+                        )}
+                        {isWorkspaceFiltering && (
+                            <span className="text-[10px] bg-violet-500/15 text-violet-300 border border-violet-500/20 px-2 py-0.5 rounded-full font-semibold">
+                                {[...selectedWorkspaceIds!].join(', ')}
+                            </span>
+                        )}
+                    </div>
                 )}
             </div>
 
@@ -355,12 +399,12 @@ export const HierarchyTree: React.FC<HierarchyTreeProps> = ({ organization, sele
 
                 {isSearching && filteredOrg.folders?.length === 0 && filteredOrg.projects?.length === 0 && (
                     <p className="text-xs text-white/30 text-center py-4">
-                        No nodes match &ldquo;{searchQuery}&rdquo;{isLayerFiltering ? ' in the selected layers' : ''}
+                        No nodes match &ldquo;{searchQuery}&rdquo;{isLayerFiltering || isWorkspaceFiltering ? ' in the active filters' : ''}
                     </p>
                 )}
-                {!isSearching && isLayerFiltering && filteredOrg.folders?.length === 0 && filteredOrg.projects?.length === 0 && (
+                {!isSearching && (isLayerFiltering || isWorkspaceFiltering) && filteredOrg.folders?.length === 0 && filteredOrg.projects?.length === 0 && (
                     <p className="text-xs text-white/30 text-center py-4">
-                        No resources found in the selected layer{selectedLayerIds!.size > 1 ? 's' : ''}.
+                        No resources found for the active layer / workspace filter.
                     </p>
                 )}
             </div>
@@ -406,6 +450,7 @@ type ResourceRowProps = {
     selectedNode?: SelectedNode | null;
     onSelect?: (node: SelectedNode) => void;
     query?: string;
+    projectWorkspaceId?: string;
 };
 
 // Row renderer: react-window v2 injects ariaAttributes + index + style on top of rowProps
@@ -414,7 +459,7 @@ function ResourceRow(props: {
     index: number;
     style: React.CSSProperties;
 } & ResourceRowProps) {
-    const { index, style, resources, selectedNode, onSelect, query = '' } = props;
+    const { index, style, resources, selectedNode, onSelect, query = '', projectWorkspaceId } = props;
     const res = resources[index];
     return (
         <div style={style}>
@@ -423,6 +468,7 @@ function ResourceRow(props: {
                 type="resource"
                 id={res.type}
                 layerId={res.layer_id}
+                workspaceId={res.workspace_id ?? projectWorkspaceId}
                 isSelected={selectedNode?.type === 'resource' && selectedNode.data.address === res.address}
                 onSelect={() => onSelect?.({ type: 'resource', data: res })}
                 query={query}
@@ -436,15 +482,15 @@ interface VirtualResourceListProps {
     selectedNode?: SelectedNode | null;
     onSelect?: (node: SelectedNode) => void;
     query?: string;
+    projectWorkspaceId?: string;
 }
 
-const VirtualResourceList: React.FC<VirtualResourceListProps> = ({ resources, selectedNode, onSelect, query = '' }) => {
+const VirtualResourceList: React.FC<VirtualResourceListProps> = ({ resources, selectedNode, onSelect, query = '', projectWorkspaceId }) => {
     const height = Math.min(resources.length * VIRTUAL_ITEM_HEIGHT, VIRTUAL_MAX_HEIGHT);
 
-    // Stable rowProps — List re-renders rows automatically when this changes
     const rowProps = useMemo<ResourceRowProps>(
-        () => ({ resources, selectedNode, onSelect, query }),
-        [resources, selectedNode, onSelect, query],
+        () => ({ resources, selectedNode, onSelect, query, projectWorkspaceId }),
+        [resources, selectedNode, onSelect, query, projectWorkspaceId],
     );
 
     return (
@@ -506,6 +552,7 @@ const ProjectNode: React.FC<ProjectNodeProps> = ({ project, selectedNode, onSele
             type="project"
             id={project.project_id}
             layerId={project.layer_id}
+            workspaceId={project.workspace_id}
             badge={badge}
             isSelected={selectedNode?.type === 'project' && selectedNode.data.id === project.id}
             onSelect={() => onSelect?.({ type: 'project', data: project })}
@@ -519,6 +566,7 @@ const ProjectNode: React.FC<ProjectNodeProps> = ({ project, selectedNode, onSele
                     selectedNode={selectedNode}
                     onSelect={onSelect}
                     query={query}
+                    projectWorkspaceId={project.workspace_id}
                 />
             ) : (
                 visibleResources.map(res => (
@@ -528,6 +576,7 @@ const ProjectNode: React.FC<ProjectNodeProps> = ({ project, selectedNode, onSele
                         type="resource"
                         id={res.type}
                         layerId={res.layer_id}
+                        workspaceId={res.workspace_id ?? project.workspace_id}
                         isSelected={selectedNode?.type === 'resource' && selectedNode.data.address === res.address}
                         onSelect={() => onSelect?.({ type: 'resource', data: res })}
                         query={query}

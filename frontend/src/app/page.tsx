@@ -5,7 +5,7 @@ import { HierarchyTree } from '@/components/HierarchyTree';
 import { DetailPanel } from '@/components/DetailPanel';
 import { WorkspaceLayers } from '@/components/WorkspaceLayers';
 import type { SelectedNode } from '@/components/DetailPanel';
-import type { Organization, Workspace } from '@/types';
+import type { Organization, Workspace, TerraformWorkspace } from '@/types';
 import { fetchHierarchy, fetchWorkspace, syncWorkspace } from '@/lib/api';
 import { Shield, Server, RefreshCw, Layers, Building2 } from 'lucide-react';
 
@@ -35,6 +35,7 @@ const MOCK_ORG: Organization = {
               display_name: "Platform Infrastructure",
               parent: "folders/200000000001",
               layer_id: "network",
+              workspace_id: "default",
               resources: [
                 { type: "google_compute_network", name: "vpc-main", address: "module.network.google_compute_network.main", id: "projects/cag-platform-infra/global/networks/vpc-main", layer_id: "network" },
                 { type: "google_compute_subnetwork", name: "subnet-europe-west1", address: "module.network.google_compute_subnetwork.europe_west1", id: "projects/cag-platform-infra/regions/europe-west1/subnetworks/subnet-europe-west1", layer_id: "network" },
@@ -49,6 +50,7 @@ const MOCK_ORG: Organization = {
               display_name: "CI/CD Pipeline",
               parent: "folders/200000000001",
               layer_id: "projects",
+              workspace_id: "default",
               resources: [
                 { type: "google_cloudbuild_trigger", name: "main-build", address: "google_cloudbuild_trigger.main", id: "projects/cag-platform-cicd/locations/global/triggers/main-build", layer_id: "projects" },
                 { type: "google_storage_bucket", name: "build-artifacts", address: "google_storage_bucket.artifacts", id: "cag-platform-cicd-artifacts", layer_id: "projects" },
@@ -75,6 +77,7 @@ const MOCK_ORG: Organization = {
                   display_name: "App — Production",
                   parent: "folders/300000000001",
                   layer_id: "apps",
+                  workspace_id: "prod",
                   resources: [
                     { type: "google_cloud_run_v2_service", name: "api-service", address: "module.app.google_cloud_run_v2_service.api", id: "projects/cag-app-prod/locations/europe-west1/services/api-service", layer_id: "apps" },
                     { type: "google_cloud_run_v2_service", name: "frontend-service", address: "module.app.google_cloud_run_v2_service.frontend", id: "projects/cag-app-prod/locations/europe-west1/services/frontend-service", layer_id: "apps" },
@@ -90,6 +93,7 @@ const MOCK_ORG: Organization = {
                   display_name: "App — Data Warehouse",
                   parent: "folders/300000000001",
                   layer_id: "apps",
+                  workspace_id: "prod",
                   resources: [
                     { type: "google_bigquery_dataset", name: "analytics", address: "google_bigquery_dataset.analytics", id: "projects/cag-app-prod-data/datasets/analytics", layer_id: "apps" },
                     { type: "google_bigquery_table", name: "events_raw", address: "google_bigquery_table.events_raw", id: "projects/cag-app-prod-data/datasets/analytics/tables/events_raw", layer_id: "apps" },
@@ -103,6 +107,7 @@ const MOCK_ORG: Organization = {
                   display_name: "Platform — Service Mesh (25 resources)",
                   parent: "folders/300000000001",
                   layer_id: "apps",
+                  workspace_id: "prod",
                   resources: [
                     { type: "google_compute_network", name: "mesh-vpc", address: "module.mesh.google_compute_network.vpc", id: "projects/cag-platform-mesh/global/networks/mesh-vpc", layer_id: "apps" },
                     { type: "google_compute_subnetwork", name: "mesh-subnet-ew1", address: "module.mesh.google_compute_subnetwork.ew1", id: "projects/cag-platform-mesh/regions/europe-west1/subnetworks/mesh-subnet-ew1", layer_id: "apps" },
@@ -145,6 +150,7 @@ const MOCK_ORG: Organization = {
                   display_name: "App — Staging",
                   parent: "folders/300000000002",
                   layer_id: "apps",
+                  workspace_id: "staging",
                   resources: [
                     { type: "google_cloud_run_v2_service", name: "api-service", address: "module.app.google_cloud_run_v2_service.api", id: "projects/cag-app-staging/locations/europe-west1/services/api-service", layer_id: "apps" },
                     { type: "google_sql_database_instance", name: "postgres-staging", address: "module.db.google_sql_database_instance.staging", id: "projects/cag-app-staging/instances/postgres-staging", layer_id: "apps" },
@@ -164,6 +170,7 @@ const MOCK_ORG: Organization = {
                   display_name: "App — Development",
                   parent: "folders/300000000003",
                   layer_id: "apps",
+                  workspace_id: "dev",
                   resources: [
                     { type: "google_cloud_run_v2_service", name: "api-service-dev", address: "module.app.google_cloud_run_v2_service.api", id: "projects/cag-app-dev/locations/europe-west1/services/api-service-dev", layer_id: "apps" },
                     { type: "google_firestore_database", name: "dev-db", address: "google_firestore_database.dev", id: "(default)", layer_id: "apps" },
@@ -185,6 +192,7 @@ const MOCK_ORG: Organization = {
               display_name: "Security Operations",
               parent: "folders/200000000003",
               layer_id: "security",
+              workspace_id: "default",
               resources: [
                 { type: "google_scc_notification_config", name: "scc-alerts", address: "google_scc_notification_config.alerts", id: "organizations/987654321098/notificationConfigs/scc-alerts", layer_id: "security" },
                 { type: "google_kms_key_ring", name: "primary-keyring", address: "google_kms_key_ring.primary", id: "projects/cag-security-ops/locations/europe-west1/keyRings/primary-keyring", layer_id: "security" },
@@ -215,6 +223,7 @@ const MOCK_ORG: Organization = {
               display_name: "Central Monitoring",
               parent: "folders/200000000004",
               layer_id: "projects",
+              workspace_id: "default",
               resources: [
                 { type: "google_monitoring_dashboard", name: "infra-overview", address: "google_monitoring_dashboard.infra", id: "projects/cag-monitoring/dashboards/infra-overview", layer_id: "projects" },
                 { type: "google_monitoring_alert_policy", name: "high-cpu-alert", address: "google_monitoring_alert_policy.high_cpu", id: "projects/cag-monitoring/alertPolicies/12345678901", layer_id: "projects" },
@@ -233,6 +242,7 @@ const MOCK_ORG: Organization = {
           display_name: "Billing Management",
           parent: "folders/100000000002",
           layer_id: "org",
+          workspace_id: "default",
           resources: [
             { type: "google_billing_budget", name: "org-monthly-budget", address: "google_billing_budget.monthly", id: "billingAccounts/01ABCD-EF1234-567890/budgets/org-monthly-budget", layer_id: "org" },
           ],
@@ -248,6 +258,7 @@ const MOCK_ORG: Organization = {
       display_name: "Org Bootstrap",
       parent: "organizations/987654321098",
       layer_id: "org",
+      workspace_id: "default",
       resources: [
         { type: "google_organization_policy", name: "restrict-domains", address: "google_organization_policy.restrict_domains", id: "organizations/987654321098/policies/iam.allowedPolicyMemberDomains", layer_id: "org" },
         { type: "google_project", name: "seed-project", address: "google_project.seed", id: "projects/cag-org-bootstrap", layer_id: "org" },
@@ -266,30 +277,48 @@ const MOCK_WORKSPACE: Workspace = {
       name: "Organization",
       last_sync: new Date(Date.now() - 8 * 60 * 1000).toISOString(),
       status: "clean",
+      workspaces: [
+        { id: "default", layer_id: "org", status: "clean", last_sync: new Date(Date.now() - 8 * 60 * 1000).toISOString() },
+      ],
     },
     {
       id: "network",
       name: "Network",
       last_sync: new Date(Date.now() - 8 * 60 * 1000).toISOString(),
       status: "drifted",
+      workspaces: [
+        { id: "default", layer_id: "network", status: "drifted", last_sync: new Date(Date.now() - 8 * 60 * 1000).toISOString() },
+      ],
     },
     {
       id: "security",
       name: "Security",
       last_sync: new Date(Date.now() - 25 * 60 * 1000).toISOString(),
       status: "clean",
+      workspaces: [
+        { id: "default", layer_id: "security", status: "clean", last_sync: new Date(Date.now() - 25 * 60 * 1000).toISOString() },
+      ],
     },
     {
       id: "projects",
       name: "Projects",
       last_sync: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
       status: "error",
+      workspaces: [
+        { id: "default", layer_id: "projects", status: "error", last_sync: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString() },
+      ],
     },
     {
       id: "apps",
       name: "Applications",
       last_sync: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(),
       status: "clean",
+      workspaces: [
+        { id: "default", layer_id: "apps", status: "clean", last_sync: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString() },
+        { id: "prod",    layer_id: "apps", status: "drifted", last_sync: new Date(Date.now() - 13 * 60 * 60 * 1000).toISOString() },
+        { id: "staging", layer_id: "apps", status: "clean",   last_sync: new Date(Date.now() - 15 * 60 * 60 * 1000).toISOString() },
+        { id: "dev",     layer_id: "apps", status: "clean",   last_sync: new Date(Date.now() - 20 * 60 * 60 * 1000).toISOString() },
+      ],
     },
   ],
 };
@@ -314,6 +343,7 @@ export default function Home() {
   const [org, setOrg] = useState<Organization>(MOCK_ORG);
   const [workspace, setWorkspace] = useState<Workspace>(MOCK_WORKSPACE);
   const [selectedLayerIds, setSelectedLayerIds] = useState<Set<string>>(new Set());
+  const [selectedWorkspaceIds, setSelectedWorkspaceIds] = useState<Set<string>>(new Set());
   const [isSyncing, setIsSyncing] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -446,6 +476,7 @@ export default function Home() {
           <WorkspaceLayers
             workspace={workspace}
             selectedLayerIds={selectedLayerIds}
+            selectedWorkspaceIds={selectedWorkspaceIds}
             onToggleLayer={(id) => {
               setSelectedLayerIds(prev => {
                 const next = new Set(prev);
@@ -456,12 +487,30 @@ export default function Home() {
                 }
                 return next;
               });
-              // Show the layer detail if only one layer is selected
+              setSelectedWorkspaceIds(new Set());
               const layer = workspace.layers.find(l => l.id === id);
               if (layer) setSelectedNode({ type: 'layer', data: layer });
             }}
+            onToggleWorkspace={(ws: TerraformWorkspace) => {
+              setSelectedWorkspaceIds(prev => {
+                const next = new Set(prev);
+                if (next.has(ws.id)) {
+                  next.delete(ws.id);
+                } else {
+                  next.add(ws.id);
+                }
+                return next;
+              });
+              // Auto-select the parent layer if not already selected
+              setSelectedLayerIds(prev => {
+                if (!prev.has(ws.layer_id)) return new Set([...prev, ws.layer_id]);
+                return prev;
+              });
+              setSelectedNode({ type: 'tf_workspace', data: ws });
+            }}
             onClearSelection={() => {
               setSelectedLayerIds(new Set());
+              setSelectedWorkspaceIds(new Set());
               setSelectedNode(null);
             }}
           />
@@ -499,6 +548,7 @@ export default function Home() {
             selectedNode={selectedNode}
             onSelect={setSelectedNode}
             selectedLayerIds={selectedLayerIds}
+            selectedWorkspaceIds={selectedWorkspaceIds}
           />
           <DetailPanel node={selectedNode} onClose={() => setSelectedNode(null)} />
         </div>

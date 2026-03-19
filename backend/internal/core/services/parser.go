@@ -38,7 +38,10 @@ type tfResource struct {
 	} `json:"instances"`
 }
 
-func (p *TofuParser) Parse(ctx context.Context, stateData []byte, layerID string) (*domain.Organization, error) {
+// Parse converts raw Terraform state JSON into a GCP hierarchy tree.
+// Every node is stamped with both layerID and tfWorkspaceID so the UI can
+// filter and show workspace-level provenance without additional round-trips.
+func (p *TofuParser) Parse(ctx context.Context, stateData []byte, layerID, tfWorkspaceID string) (*domain.Organization, error) {
 	var state tfState
 	if err := json.Unmarshal(stateData, &state); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal state: %w", err)
@@ -63,6 +66,7 @@ func (p *TofuParser) Parse(ctx context.Context, stateData []byte, layerID string
 					DisplayName: inst.Attributes.DisplayName,
 					Parent:      inst.Attributes.Parent,
 					LayerID:     layerID,
+					WorkspaceID: tfWorkspaceID,
 				}
 			case "google_project":
 				pid := inst.Attributes.ProjectID
@@ -75,33 +79,27 @@ func (p *TofuParser) Parse(ctx context.Context, stateData []byte, layerID string
 					DisplayName: inst.Attributes.DisplayName,
 					Parent:      inst.Attributes.Parent,
 					LayerID:     layerID,
-				}
-			default:
-				// Treat everything else as a generic resource attached to its project.
-				if res.Type != "google_folder" && res.Type != "google_project" {
-					// We'll handle generic resources in a second pass below.
+					WorkspaceID: tfWorkspaceID,
 				}
 			}
 		}
 	}
 
 	// Second pass: collect non-folder/non-project resources and attach them to projects.
-	// We build a helper map from project resource address prefix to project.
-	projectResources := make(map[string][]*domain.Resource) // keyed by project ID path
+	projectResources := make(map[string][]*domain.Resource) // keyed by project ID
 	for _, res := range state.Resources {
 		if res.Type == "google_folder" || res.Type == "google_project" {
 			continue
 		}
 		for _, inst := range res.Instances {
 			resource := &domain.Resource{
-				Type:    res.Type,
-				Name:    res.Name,
-				Address: res.Address,
-				ID:      inst.Attributes.ID,
-				LayerID: layerID,
+				Type:        res.Type,
+				Name:        res.Name,
+				Address:     res.Address,
+				ID:          inst.Attributes.ID,
+				LayerID:     layerID,
+				WorkspaceID: tfWorkspaceID,
 			}
-			// Try to determine the project from the resource ID (projects/<pid>/...)
-			// or fall back to attaching to an "unscoped" bucket.
 			projKey := extractProjectKey(inst.Attributes.ID)
 			projectResources[projKey] = append(projectResources[projKey], resource)
 		}
@@ -119,16 +117,13 @@ func (p *TofuParser) Parse(ctx context.Context, stateData []byte, layerID string
 	for _, folder := range folders {
 		p.addToHierarchy(folder.Parent, folder, folders, orgs)
 	}
-
 	for _, project := range projects {
 		p.addToHierarchy(project.Parent, project, folders, orgs)
 	}
 
-	// Find the root organization
 	if len(orgs) == 0 {
 		return nil, fmt.Errorf("no organization found in state")
 	}
-
 	for _, org := range orgs {
 		return org, nil
 	}

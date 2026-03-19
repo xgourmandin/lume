@@ -2,15 +2,16 @@
 
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Building2, Folder, Briefcase, Cpu, X, Hash, Link2, Layers, Tag, CheckCircle2, AlertTriangle, XCircle, Clock } from 'lucide-react';
-import { Organization, Folder as GCPFolder, Project, Resource, Layer, SyncStatus } from '../types';
+import { Building2, Folder, Briefcase, Cpu, X, Hash, Link2, Layers, Tag, CheckCircle2, AlertTriangle, XCircle, Clock, GitBranch } from 'lucide-react';
+import { Organization, Folder as GCPFolder, Project, Resource, Layer, TerraformWorkspace, SyncStatus } from '../types';
 
 export type SelectedNode =
   | { type: 'org'; data: Organization }
   | { type: 'folder'; data: GCPFolder }
   | { type: 'project'; data: Project }
   | { type: 'resource'; data: Resource }
-  | { type: 'layer'; data: Layer };
+  | { type: 'layer'; data: Layer }
+  | { type: 'tf_workspace'; data: TerraformWorkspace };
 
 interface DetailPanelProps {
   node: SelectedNode | null;
@@ -104,6 +105,8 @@ function ProjectDetail({ data }: { data: Project }) {
       <Badge label="Display Name" value={data.display_name} icon={<Tag className="w-3.5 h-3.5" />} />
       <Badge label="Internal ID" value={data.id} icon={<Hash className="w-3.5 h-3.5" />} mono />
       <Badge label="Parent" value={data.parent} icon={<Link2 className="w-3.5 h-3.5" />} mono />
+      {data.layer_id && <Badge label="Layer" value={data.layer_id} icon={<Layers className="w-3.5 h-3.5" />} mono />}
+      {data.workspace_id && <Badge label="TF Workspace" value={data.workspace_id} icon={<GitBranch className="w-3.5 h-3.5" />} mono />}
 
       {data.resources && data.resources.length > 0 && (
         <>
@@ -136,6 +139,39 @@ function ResourceDetail({ data }: { data: Resource }) {
       <Badge label="Resource Type" value={data.type} icon={<Layers className="w-3.5 h-3.5" />} mono />
       <Badge label="Address" value={data.address} icon={<Link2 className="w-3.5 h-3.5" />} mono />
       <Badge label="ID" value={data.id} icon={<Hash className="w-3.5 h-3.5" />} mono />
+      {data.layer_id && <Badge label="Layer" value={data.layer_id} icon={<Layers className="w-3.5 h-3.5" />} mono />}
+      {data.workspace_id && <Badge label="TF Workspace" value={data.workspace_id} icon={<GitBranch className="w-3.5 h-3.5" />} mono />}
+    </div>
+  );
+}
+
+function TfWorkspaceDetail({ data }: { data: TerraformWorkspace }) {
+  const colorClass = statusColors[data.status] ?? statusColors.error;
+  return (
+    <div className="space-y-3">
+      <Badge label="Workspace Name" value={data.id} icon={<GitBranch className="w-3.5 h-3.5" />} mono />
+      <Badge label="Layer" value={data.layer_id} icon={<Layers className="w-3.5 h-3.5" />} mono />
+      <div className="flex flex-col gap-1">
+        <span className="text-[10px] uppercase tracking-widest text-white/30 font-semibold">Status</span>
+        <div className={`flex items-center gap-2 rounded-lg px-3 py-2 border ${colorClass}`}>
+          {statusIcons[data.status]}
+          <span className="text-sm font-semibold capitalize">{data.status}</span>
+        </div>
+      </div>
+      <div className="flex flex-col gap-1">
+        <span className="text-[10px] uppercase tracking-widest text-white/30 font-semibold">Last Sync</span>
+        <div className="flex items-center gap-2 bg-white/5 rounded-lg px-3 py-2 border border-white/5">
+          <Clock className="w-3.5 h-3.5 text-white/40 shrink-0" />
+          <span className="text-sm text-white/80 font-mono">{formatDate(data.last_sync)}</span>
+        </div>
+      </div>
+      <div className="mt-2 p-3 bg-violet-500/5 border border-violet-500/15 rounded-xl">
+        <p className="text-[11px] text-violet-300/70 leading-relaxed">
+          This is a <span className="font-semibold text-violet-300">Terraform workspace</span> — a named environment
+          within the <span className="font-mono">{data.layer_id}</span> layer. All resources parsed from its state
+          file carry <span className="font-mono">workspace_id: &quot;{data.id}&quot;</span>.
+        </p>
+      </div>
     </div>
   );
 }
@@ -221,6 +257,13 @@ const typeConfig = {
     label: 'Layer',
     color: 'text-purple-400',
   },
+  tf_workspace: {
+    icon: <GitBranch className="w-5 h-5 text-violet-400" />,
+    bg: 'bg-violet-500/10',
+    border: 'border-violet-500/30',
+    label: 'TF Workspace',
+    color: 'text-violet-400',
+  },
 };
 
 export const DetailPanel: React.FC<DetailPanelProps> = ({ node, onClose }) => {
@@ -228,7 +271,11 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ node, onClose }) => {
     <AnimatePresence>
       {node && (
         <motion.div
-          key={`${node.type}-${'id' in node.data ? node.data.id : (node.data as Resource).address}`}
+          key={`${node.type}-${
+            node.type === 'resource' ? node.data.address
+            : node.type === 'tf_workspace' ? `${node.data.layer_id}-${node.data.id}`
+            : node.data.id
+          }`}
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 12 }}
@@ -248,6 +295,8 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ node, onClose }) => {
                 <h3 className="text-base font-semibold text-white leading-tight">
                   {node.type === 'layer'
                     ? (node.data.name || node.data.id)
+                    : node.type === 'tf_workspace'
+                    ? `${node.data.layer_id} / ${node.data.id}`
                     : node.type === 'resource'
                     ? node.data.name
                     : node.data.display_name}
@@ -268,6 +317,7 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ node, onClose }) => {
           {node.type === 'project' && <ProjectDetail data={node.data as Project} />}
           {node.type === 'resource' && <ResourceDetail data={node.data as Resource} />}
           {node.type === 'layer' && <LayerDetail data={node.data as Layer} />}
+          {node.type === 'tf_workspace' && <TfWorkspaceDetail data={node.data as TerraformWorkspace} />}
         </motion.div>
       )}
     </AnimatePresence>

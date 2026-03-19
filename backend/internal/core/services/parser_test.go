@@ -15,7 +15,7 @@ func TestTofuParser_Parse(t *testing.T) {
 	}
 
 	parser := NewTofuParser()
-	org, err := parser.Parse(context.Background(), stateData, "test-layer")
+	org, err := parser.Parse(context.Background(), stateData, "test-layer", "default")
 
 	assert.NoError(t, err)
 	assert.NotNil(t, org)
@@ -28,6 +28,7 @@ func TestTofuParser_Parse(t *testing.T) {
 	assert.Equal(t, "1234567890", engFolder.ID)
 	assert.Equal(t, "Engineering", engFolder.DisplayName)
 	assert.Equal(t, "test-layer", engFolder.LayerID)
+	assert.Equal(t, "default", engFolder.WorkspaceID)
 
 	// Check Platforms folder
 	assert.Len(t, engFolder.Folders, 1)
@@ -35,6 +36,7 @@ func TestTofuParser_Parse(t *testing.T) {
 	assert.Equal(t, "2345678901", platFolder.ID)
 	assert.Equal(t, "Platforms", platFolder.DisplayName)
 	assert.Equal(t, "test-layer", platFolder.LayerID)
+	assert.Equal(t, "default", platFolder.WorkspaceID)
 
 	// Check Lume Development project
 	assert.Len(t, platFolder.Projects, 1)
@@ -42,4 +44,5 @@ func TestTofuParser_Parse(t *testing.T) {
 	assert.Equal(t, "lume-dev-project", project.ID)
 	assert.Equal(t, "Lume Development", project.DisplayName)
 	assert.Equal(t, "test-layer", project.LayerID)
+	assert.Equal(t, "default", project.WorkspaceID)
 }

@@ -25,7 +25,6 @@ func NewFirestoreWorkspaceRepository() (ports.WorkspaceRepository, error) {
 
 func (r *FirestoreWorkspaceRepository) Save(ctx context.Context, workspace *domain.Workspace, hierarchy *domain.Organization) error {
 	docRef := r.client.Collection("workspaces").Doc(workspace.ID)
-
 	_, err := docRef.Set(ctx, map[string]interface{}{
 		"id":              workspace.ID,
 		"last_sync":       time.Now(),
@@ -33,7 +32,6 @@ func (r *FirestoreWorkspaceRepository) Save(ctx context.Context, workspace *doma
 		"layers":          workspace.Layers,
 		"hierarchy_cache": hierarchy,
 	})
-
 	return err
 }
 
@@ -65,23 +63,54 @@ func (r *FirestoreWorkspaceRepository) GetByID(ctx context.Context, id string) (
 	return workspace, data.HierarchyCache, nil
 }
 
-// SaveLayer persists the parsed Organization for a single state layer under
-// workspaces/{workspaceID}/layers/{layerID}.
-func (r *FirestoreWorkspaceRepository) SaveLayer(ctx context.Context, workspaceID, layerID string, org *domain.Organization) error {
+// ListWorkspaces returns summary metadata for all workspaces (no hierarchy cache).
+func (r *FirestoreWorkspaceRepository) ListWorkspaces(ctx context.Context) ([]*domain.Workspace, error) {
+	docs, err := r.client.Collection("workspaces").Documents(ctx).GetAll()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list workspaces: %w", err)
+	}
+
+	workspaces := make([]*domain.Workspace, 0, len(docs))
+	for _, doc := range docs {
+		var data struct {
+			ID       string         `firestore:"id"`
+			LastSync time.Time      `firestore:"last_sync"`
+			Status   string         `firestore:"status"`
+			Layers   []domain.Layer `firestore:"layers"`
+		}
+		if err := doc.DataTo(&data); err != nil {
+			return nil, fmt.Errorf("failed to decode workspace %s: %w", doc.Ref.ID, err)
+		}
+		workspaces = append(workspaces, &domain.Workspace{
+			ID:       data.ID,
+			LastSync: data.LastSync,
+			Status:   data.Status,
+			Layers:   data.Layers,
+		})
+	}
+	return workspaces, nil
+}
+
+// SaveLayer persists the parsed Organization for a single (layerID, tfWorkspaceID) pair.
+// The document is keyed as "{layerID}--{tfWorkspaceID}" so that each Terraform workspace
+// gets its own isolated state snapshot while remaining queryable as a flat collection.
+func (r *FirestoreWorkspaceRepository) SaveLayer(ctx context.Context, workspaceID, layerID, tfWorkspaceID string, org *domain.Organization) error {
+	docID := layerID + "--" + tfWorkspaceID
 	docRef := r.client.
 		Collection("workspaces").Doc(workspaceID).
-		Collection("layers").Doc(layerID)
+		Collection("layers").Doc(docID)
 
 	_, err := docRef.Set(ctx, map[string]interface{}{
-		"id":        layerID,
-		"last_sync": time.Now(),
-		"hierarchy": org,
+		"layer_id":     layerID,
+		"workspace_id": tfWorkspaceID,
+		"last_sync":    time.Now(),
+		"hierarchy":    org,
 	})
 	return err
 }
 
-// GetMergedHierarchy fetches every layer document for the workspace and
-// merges them into a single Organization using the domain's own Merge logic.
+// GetMergedHierarchy fetches every (layerID, tfWorkspaceID) state snapshot for the
+// workspace and merges them into a single Organization using the domain Merge logic.
 func (r *FirestoreWorkspaceRepository) GetMergedHierarchy(ctx context.Context, workspaceID string) (*domain.Organization, error) {
 	docs, err := r.client.
 		Collection("workspaces").Doc(workspaceID).
