@@ -14,6 +14,49 @@ GET {{baseUrl}}/api/v1/workspaces
 GET {{baseUrl}}/api/v1/workspaces/lz
 
 ### ─────────────────────────────────────────
+### Drift reports
+### ─────────────────────────────────────────
+
+### Get the latest drift result for a (workspace, layer, tf-workspace) tuple
+GET {{baseUrl}}/api/v1/workspaces/lz/drift/apps/prod
+
+### Report drift – drifted (posted by CI/CD pipeline after tofu plan)
+POST {{baseUrl}}/api/v1/workspaces/lz/drift/apps/prod
+Content-Type: application/json
+
+{
+  "status": "drifted",
+  "add_count": 2,
+  "change_count": 1,
+  "destroy_count": 0,
+  "scanned_at": "2026-03-23T10:00:00Z"
+}
+
+### Report drift – clean
+POST {{baseUrl}}/api/v1/workspaces/lz/drift/apps/prod
+Content-Type: application/json
+
+{
+  "status": "clean",
+  "add_count": 0,
+  "change_count": 0,
+  "destroy_count": 0,
+  "scanned_at": "2026-03-23T10:00:00Z"
+}
+
+### Report drift – error (plan execution failed in CI)
+POST {{baseUrl}}/api/v1/workspaces/lz/drift/apps/prod
+Content-Type: application/json
+
+{
+  "status": "error",
+  "add_count": 0,
+  "change_count": 0,
+  "destroy_count": 0,
+  "error_message": "tofu init failed: unable to reach backend"
+}
+
+### ─────────────────────────────────────────
 ### Hierarchy
 ### ─────────────────────────────────────────
 

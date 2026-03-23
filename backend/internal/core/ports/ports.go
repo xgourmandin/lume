@@ -30,26 +30,12 @@ type WorkspaceRepository interface {
 	// GetMergedHierarchy fetches all layer/workspace state snapshots for the workspace
 	// and returns a single Organization that is the result of merging them in order.
 	GetMergedHierarchy(ctx context.Context, workspaceID string) (*domain.Organization, error)
-	// SaveDriftResult persists the outcome of a tofu plan execution for a single
+	// SaveDriftResult persists a drift report received from the CI/CD pipeline for a single
 	// (layerID, tfWorkspaceID) pair and updates the status on the parent workspace.
 	SaveDriftResult(ctx context.Context, workspaceID, layerID, tfWorkspaceID string, result *domain.DriftResult) error
-	// GetDriftResult fetches the latest drift scan result for a single
+	// GetDriftResult fetches the latest drift report for a single
 	// (workspaceID, layerID, tfWorkspaceID) tuple.
 	GetDriftResult(ctx context.Context, workspaceID, layerID, tfWorkspaceID string) (*domain.DriftResult, error)
-}
-
-// CodeCloner clones a git repository into destDir.
-// The entire repository is cloned; the caller is responsible for navigating to the
-// correct sub-directory for a specific layer.
-type CodeCloner interface {
-	CloneLayer(ctx context.Context, repoURL, ref, destDir string) error
-}
-
-// PlanRunner executes `tofu init`, selects (or creates) the requested Terraform
-// workspace, and runs `tofu plan -json -detailed-exitcode` in workDir.
-// It always returns a non-nil *domain.DriftResult alongside any error.
-type PlanRunner interface {
-	RunPlan(ctx context.Context, workDir, tfWorkspace string) (*domain.DriftResult, error)
 }
 
 // TofuService defines the orchestration logic for the Tofu/Terraform features.
