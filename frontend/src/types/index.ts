@@ -78,3 +78,14 @@ export interface WorkspaceDetail {
   workspace: Workspace;
   hierarchy: Organization;
 }
+
+/** Result of a `tofu plan -detailed-exitcode` run stored by the drift scanner job. */
+export interface DriftResult {
+  status: SyncStatus;
+  add_count: number;
+  change_count: number;
+  destroy_count: number;
+  scanned_at: string; // ISO-8601
+  error_message?: string;
+}
+

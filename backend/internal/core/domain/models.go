@@ -2,6 +2,24 @@ package domain
 
 import "time"
 
+// Drift status constants shared across the domain.
+const (
+	DriftStatusClean   = "clean"
+	DriftStatusDrifted = "drifted"
+	DriftStatusError   = "error"
+)
+
+// DriftResult captures the outcome of a single `tofu plan` execution for one
+// (workspaceID, layerID, tfWorkspaceID) tuple.
+type DriftResult struct {
+	Status       string    `json:"status"` // clean | drifted | error
+	AddCount     int       `json:"add_count"`
+	ChangeCount  int       `json:"change_count"`
+	DestroyCount int       `json:"destroy_count"`
+	ScannedAt    time.Time `json:"scanned_at"`
+	ErrorMessage string    `json:"error_message,omitempty"`
+}
+
 // Organization represents the root of the GCP hierarchy.
 type Organization struct {
 	ID          string     `json:"id"`

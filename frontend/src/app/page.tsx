@@ -537,7 +537,12 @@ export default function Home() {
             selectedLayerIds={selectedLayerIds}
             selectedWorkspaceIds={selectedWorkspaceIds}
           />
-          <DetailPanel node={selectedNode} onClose={() => setSelectedNode(null)} />
+          <DetailPanel
+            node={selectedNode}
+            onClose={() => setSelectedNode(null)}
+            workspaceId={workspace.id}
+            onSelectTfWorkspace={(ws) => setSelectedNode({ type: 'tf_workspace', data: ws })}
+          />
         </div>
       </div>
     </main>

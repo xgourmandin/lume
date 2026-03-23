@@ -4,6 +4,7 @@ import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Building2, Folder, Briefcase, Cpu, X, Hash, Link2, Layers, Tag, CheckCircle2, AlertTriangle, XCircle, Clock, GitBranch } from 'lucide-react';
 import { Organization, Folder as GCPFolder, Project, Resource, Layer, TerraformWorkspace, SyncStatus } from '../types';
+import { DriftReport } from './DriftReport';
 
 export type SelectedNode =
   | { type: 'org'; data: Organization }
@@ -16,6 +17,10 @@ export type SelectedNode =
 interface DetailPanelProps {
   node: SelectedNode | null;
   onClose: () => void;
+  /** Lume workspace ID — needed to fetch drift results. */
+  workspaceId: string;
+  /** Called when the user clicks a TF workspace chip inside LayerDetail. */
+  onSelectTfWorkspace?: (ws: TerraformWorkspace) => void;
 }
 
 const Badge: React.FC<{ label: string; value: string; icon?: React.ReactNode; mono?: boolean }> = ({
@@ -145,7 +150,13 @@ function ResourceDetail({ data }: { data: Resource }) {
   );
 }
 
-function TfWorkspaceDetail({ data }: { data: TerraformWorkspace }) {
+function TfWorkspaceDetail({
+  data,
+  workspaceId,
+}: {
+  data: TerraformWorkspace;
+  workspaceId: string;
+}) {
   const colorClass = statusColors[data.status] ?? statusColors.error;
   return (
     <div className="space-y-3">
@@ -165,13 +176,13 @@ function TfWorkspaceDetail({ data }: { data: TerraformWorkspace }) {
           <span className="text-sm text-white/80 font-mono">{formatDate(data.last_sync)}</span>
         </div>
       </div>
-      <div className="mt-2 p-3 bg-violet-500/5 border border-violet-500/15 rounded-xl">
-        <p className="text-[11px] text-violet-300/70 leading-relaxed">
-          This is a <span className="font-semibold text-violet-300">Terraform workspace</span> — a named environment
-          within the <span className="font-mono">{data.layer_id}</span> layer. All resources parsed from its state
-          file carry <span className="font-mono">workspace_id: &quot;{data.id}&quot;</span>.
-        </p>
-      </div>
+
+      {/* Always show drift report — fetches latest scan result from Firestore */}
+      <DriftReport
+        workspaceId={workspaceId}
+        layerId={data.layer_id}
+        tfWorkspaceId={data.id}
+      />
     </div>
   );
 }
@@ -197,8 +208,17 @@ function formatDate(iso: string): string {
   }
 }
 
-function LayerDetail({ data }: { data: Layer }) {
+function LayerDetail({
+  data,
+  onSelectTfWorkspace,
+}: {
+  data: Layer;
+  onSelectTfWorkspace?: (ws: TerraformWorkspace) => void;
+}) {
   const colorClass = statusColors[data.status] ?? statusColors.error;
+  const workspaces = data.workspaces ?? [];
+  const alertWorkspaces = workspaces.filter(ws => ws.status !== 'clean');
+
   return (
     <div className="space-y-3">
       <Badge label="Layer ID" value={data.id} icon={<Hash className="w-3.5 h-3.5" />} mono />
@@ -217,6 +237,44 @@ function LayerDetail({ data }: { data: Layer }) {
           <span className="text-sm text-white/80 font-mono">{formatDate(data.last_sync)}</span>
         </div>
       </div>
+
+      {/* Drifted / error workspace chips */}
+      {alertWorkspaces.length > 0 && (
+        <div className="flex flex-col gap-1.5">
+          <span className="text-[10px] uppercase tracking-widest text-white/30 font-semibold">
+            Affected workspaces ({alertWorkspaces.length})
+          </span>
+          <div className="space-y-1.5">
+            {alertWorkspaces.map(ws => {
+              const cfg = statusColors[ws.status] ?? statusColors.error;
+              const icon = statusIcons[ws.status];
+              return (
+                <button
+                  key={ws.id}
+                  onClick={() => onSelectTfWorkspace?.(ws)}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg border transition-all text-left hover:brightness-110 ${cfg}`}
+                >
+                  {icon}
+                  <span className="flex-1 font-mono text-sm font-medium">{ws.id}</span>
+                  <span className="text-[10px] uppercase font-semibold opacity-70">
+                    View drift report →
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* All clean */}
+      {alertWorkspaces.length === 0 && workspaces.length > 0 && (
+        <div className="flex items-center gap-2 px-3 py-2.5 rounded-lg bg-emerald-500/8 border border-emerald-500/15">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          <p className="text-sm text-emerald-300">
+            All {workspaces.length} workspace{workspaces.length > 1 ? 's' : ''} are clean.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
@@ -266,7 +324,7 @@ const typeConfig = {
   },
 };
 
-export const DetailPanel: React.FC<DetailPanelProps> = ({ node, onClose }) => {
+export const DetailPanel: React.FC<DetailPanelProps> = ({ node, onClose, workspaceId, onSelectTfWorkspace }) => {
   return (
     <AnimatePresence>
       {node && (
@@ -316,8 +374,18 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ node, onClose }) => {
           {node.type === 'folder' && <FolderDetail data={node.data as GCPFolder} />}
           {node.type === 'project' && <ProjectDetail data={node.data as Project} />}
           {node.type === 'resource' && <ResourceDetail data={node.data as Resource} />}
-          {node.type === 'layer' && <LayerDetail data={node.data as Layer} />}
-          {node.type === 'tf_workspace' && <TfWorkspaceDetail data={node.data as TerraformWorkspace} />}
+          {node.type === 'layer' && (
+            <LayerDetail
+              data={node.data as Layer}
+              onSelectTfWorkspace={onSelectTfWorkspace}
+            />
+          )}
+          {node.type === 'tf_workspace' && (
+            <TfWorkspaceDetail
+              data={node.data as TerraformWorkspace}
+              workspaceId={workspaceId}
+            />
+          )}
         </motion.div>
       )}
     </AnimatePresence>

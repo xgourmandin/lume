@@ -17,6 +17,7 @@ func NewWorkspaceHandler(repo ports.WorkspaceRepository, service ports.TofuServi
 func (h *WorkspaceHandler) Register(app *mach.App) {
 	app.GET("/api/v1/workspaces", h.ListWorkspaces)
 	app.GET("/api/v1/workspaces/{id}", h.GetWorkspace)
+	app.GET("/api/v1/workspaces/{id}/drift/{layerId}/{tfWorkspace}", h.GetDriftResult)
 	app.GET("/api/v1/hierarchy/{id}", h.GetHierarchy)
 	app.POST("/api/v1/hierarchy/sync", h.SyncHierarchy)
 }
@@ -52,6 +53,21 @@ func (h *WorkspaceHandler) GetHierarchy(c *mach.Context) {
 		return
 	}
 	c.JSON(200, hierarchy)
+}
+
+// GetDriftResult returns the latest drift scan result for a (workspaceId, layerId, tfWorkspace) tuple.
+// Corresponds to GET /api/v1/workspaces/{id}/drift/{layerId}/{tfWorkspace}
+func (h *WorkspaceHandler) GetDriftResult(c *mach.Context) {
+	workspaceID := c.Param("id")
+	layerID := c.Param("layerId")
+	tfWorkspace := c.Param("tfWorkspace")
+
+	result, err := h.repo.GetDriftResult(c.Request.Context(), workspaceID, layerID, tfWorkspace)
+	if err != nil {
+		c.JSON(404, map[string]string{"error": "drift result not found"})
+		return
+	}
+	c.JSON(200, result)
 }
 
 func (h *WorkspaceHandler) SyncHierarchy(c *mach.Context) {
