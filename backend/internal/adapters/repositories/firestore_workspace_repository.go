@@ -10,6 +10,11 @@ import (
 	"github.com/lume/backend/internal/core/ports"
 )
 
+// Firestore layout (flat, single-workspace):
+//
+//	layers/{layerID--tfWorkspaceID}        → hierarchy snapshot per (layer, tf-workspace)
+//	drift_results/{layerID--tfWorkspaceID} → latest drift report per (layer, tf-workspace)
+
 type FirestoreWorkspaceRepository struct {
 	client *firestore.Client
 }
@@ -23,105 +28,28 @@ func NewFirestoreWorkspaceRepository() (ports.WorkspaceRepository, error) {
 	return &FirestoreWorkspaceRepository{client: client}, nil
 }
 
-func (r *FirestoreWorkspaceRepository) Save(ctx context.Context, workspace *domain.Workspace, hierarchy *domain.Organization) error {
-	docRef := r.client.Collection("workspaces").Doc(workspace.ID)
-	_, err := docRef.Set(ctx, map[string]interface{}{
-		"id":              workspace.ID,
-		"last_sync":       time.Now(),
-		"status":          workspace.Status,
-		"layers":          workspace.Layers,
-		"hierarchy_cache": hierarchy,
-	})
-	return err
-}
-
-func (r *FirestoreWorkspaceRepository) GetByID(ctx context.Context, id string) (*domain.Workspace, *domain.Organization, error) {
-	doc, err := r.client.Collection("workspaces").Doc(id).Get(ctx)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	var data struct {
-		ID             string               `firestore:"id"`
-		LastSync       time.Time            `firestore:"last_sync"`
-		Status         string               `firestore:"status"`
-		Layers         []domain.Layer       `firestore:"layers"`
-		HierarchyCache *domain.Organization `firestore:"hierarchy_cache"`
-	}
-
-	if err := doc.DataTo(&data); err != nil {
-		return nil, nil, err
-	}
-
-	workspace := &domain.Workspace{
-		ID:       data.ID,
-		LastSync: data.LastSync,
-		Status:   data.Status,
-		Layers:   data.Layers,
-	}
-
-	return workspace, data.HierarchyCache, nil
-}
-
-// ListWorkspaces returns summary metadata for all workspaces (no hierarchy cache).
-func (r *FirestoreWorkspaceRepository) ListWorkspaces(ctx context.Context) ([]*domain.Workspace, error) {
-	docs, err := r.client.Collection("workspaces").Documents(ctx).GetAll()
-	if err != nil {
-		return nil, fmt.Errorf("failed to list workspaces: %w", err)
-	}
-
-	workspaces := make([]*domain.Workspace, 0, len(docs))
-	for _, doc := range docs {
-		var data struct {
-			ID       string         `firestore:"id"`
-			LastSync time.Time      `firestore:"last_sync"`
-			Status   string         `firestore:"status"`
-			Layers   []domain.Layer `firestore:"layers"`
-		}
-		if err := doc.DataTo(&data); err != nil {
-			return nil, fmt.Errorf("failed to decode workspace %s: %w", doc.Ref.ID, err)
-		}
-		workspaces = append(workspaces, &domain.Workspace{
-			ID:       data.ID,
-			LastSync: data.LastSync,
-			Status:   data.Status,
-			Layers:   data.Layers,
-		})
-	}
-	return workspaces, nil
-}
-
 // SaveLayer persists the parsed Organization for a single (layerID, tfWorkspaceID) pair.
-// The document is keyed as "{layerID}--{tfWorkspaceID}" so that each Terraform workspace
-// gets its own isolated state snapshot while remaining queryable as a flat collection.
-func (r *FirestoreWorkspaceRepository) SaveLayer(ctx context.Context, workspaceID, layerID, tfWorkspaceID string, org *domain.Organization) error {
+// The document is keyed as "{layerID}--{tfWorkspaceID}".
+func (r *FirestoreWorkspaceRepository) SaveLayer(ctx context.Context, layerID, tfWorkspaceID string, org *domain.Organization) error {
 	docID := layerID + "--" + tfWorkspaceID
-	docRef := r.client.
-		Collection("workspaces").Doc(workspaceID).
-		Collection("layers").Doc(docID)
-
-	_, err := docRef.Set(ctx, map[string]interface{}{
+	_, err := r.client.Collection("layers").Doc(docID).Set(ctx, map[string]interface{}{
 		"layer_id":     layerID,
-		"workspace_id": tfWorkspaceID,
+		"tf_workspace": tfWorkspaceID,
 		"last_sync":    time.Now(),
 		"hierarchy":    org,
 	})
 	return err
 }
 
-// GetMergedHierarchy fetches every (layerID, tfWorkspaceID) state snapshot for the
-// workspace and merges them into a single Organization using the domain Merge logic.
-func (r *FirestoreWorkspaceRepository) GetMergedHierarchy(ctx context.Context, workspaceID string) (*domain.Organization, error) {
-	docs, err := r.client.
-		Collection("workspaces").Doc(workspaceID).
-		Collection("layers").
-		Documents(ctx).
-		GetAll()
+// GetMergedHierarchy fetches every layer snapshot and deep-merges them into a
+// single Organization using the domain Merge logic.
+func (r *FirestoreWorkspaceRepository) GetMergedHierarchy(ctx context.Context) (*domain.Organization, error) {
+	docs, err := r.client.Collection("layers").Documents(ctx).GetAll()
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch layers for workspace %s: %w", workspaceID, err)
+		return nil, fmt.Errorf("failed to fetch layers: %w", err)
 	}
 	if len(docs) == 0 {
-		return nil, fmt.Errorf("no layers found for workspace %s", workspaceID)
+		return nil, fmt.Errorf("no layers found")
 	}
 
 	var merged *domain.Organization
@@ -143,78 +71,36 @@ func (r *FirestoreWorkspaceRepository) GetMergedHierarchy(ctx context.Context, w
 	}
 
 	if merged == nil {
-		return nil, fmt.Errorf("no valid hierarchy found in layers for workspace %s", workspaceID)
+		return nil, fmt.Errorf("no valid hierarchy found in layers")
 	}
 	return merged, nil
 }
 
-// SaveDriftResult persists a DriftResult in the drift_results sub-collection and
-// updates the corresponding TerraformWorkspace status on the parent workspace document.
-func (r *FirestoreWorkspaceRepository) SaveDriftResult(ctx context.Context, workspaceID, layerID, tfWorkspaceID string, result *domain.DriftResult) error {
+// SaveDriftResult persists a DriftResult for a single (layerID, tfWorkspaceID) pair.
+func (r *FirestoreWorkspaceRepository) SaveDriftResult(ctx context.Context, layerID, tfWorkspaceID string, result *domain.DriftResult) error {
 	docID := layerID + "--" + tfWorkspaceID
-
-	// Write the drift result document.
-	driftRef := r.client.
-		Collection("workspaces").Doc(workspaceID).
-		Collection("drift_results").Doc(docID)
-
-	if _, err := driftRef.Set(ctx, map[string]interface{}{
+	_, err := r.client.Collection("drift_results").Doc(docID).Set(ctx, map[string]interface{}{
 		"layer_id":      layerID,
-		"workspace_id":  tfWorkspaceID,
+		"tf_workspace":  tfWorkspaceID,
 		"status":        result.Status,
 		"add_count":     result.AddCount,
 		"change_count":  result.ChangeCount,
 		"destroy_count": result.DestroyCount,
 		"scanned_at":    result.ScannedAt,
 		"error_message": result.ErrorMessage,
-	}); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("failed to write drift result: %w", err)
 	}
-
-	// Best-effort: update the parent workspace's layer/workspace status.
-	workspace, _, err := r.GetByID(ctx, workspaceID)
-	if err != nil {
-		// Workspace may not exist yet (state sync hasn't run); drift result is saved, skip metadata update.
-		return nil
-	}
-
-	now := time.Now()
-	for i := range workspace.Layers {
-		if workspace.Layers[i].ID != layerID {
-			continue
-		}
-		workspace.Layers[i].Status = result.Status
-		workspace.Layers[i].LastSync = now
-		for j := range workspace.Layers[i].Workspaces {
-			if workspace.Layers[i].Workspaces[j].ID == tfWorkspaceID {
-				workspace.Layers[i].Workspaces[j].Status = result.Status
-				workspace.Layers[i].Workspaces[j].LastSync = now
-				break
-			}
-		}
-		break
-	}
-	workspace.Status = result.Status
-	workspace.LastSync = now
-
-	_, err = r.client.Collection("workspaces").Doc(workspaceID).Update(ctx, []firestore.Update{
-		{Path: "layers", Value: workspace.Layers},
-		{Path: "status", Value: workspace.Status},
-		{Path: "last_sync", Value: workspace.LastSync},
-	})
-	return err
+	return nil
 }
 
-// GetDriftResult fetches the latest drift scan result for a single
-// (workspaceID, layerID, tfWorkspaceID) tuple from the drift_results sub-collection.
-func (r *FirestoreWorkspaceRepository) GetDriftResult(ctx context.Context, workspaceID, layerID, tfWorkspaceID string) (*domain.DriftResult, error) {
+// GetDriftResult fetches the latest drift scan result for a (layerID, tfWorkspaceID) pair.
+func (r *FirestoreWorkspaceRepository) GetDriftResult(ctx context.Context, layerID, tfWorkspaceID string) (*domain.DriftResult, error) {
 	docID := layerID + "--" + tfWorkspaceID
-	doc, err := r.client.
-		Collection("workspaces").Doc(workspaceID).
-		Collection("drift_results").Doc(docID).
-		Get(ctx)
+	doc, err := r.client.Collection("drift_results").Doc(docID).Get(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("drift result not found for %s/%s/%s: %w", workspaceID, layerID, tfWorkspaceID, err)
+		return nil, fmt.Errorf("drift result not found for %s/%s: %w", layerID, tfWorkspaceID, err)
 	}
 
 	var data struct {

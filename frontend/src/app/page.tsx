@@ -5,8 +5,8 @@ import { HierarchyTree } from '@/components/HierarchyTree';
 import { DetailPanel } from '@/components/DetailPanel';
 import { WorkspaceLayers } from '@/components/WorkspaceLayers';
 import type { SelectedNode } from '@/components/DetailPanel';
-import type { Organization, Workspace, TerraformWorkspace } from '@/types';
-import { fetchHierarchy, fetchWorkspace, syncWorkspace } from '@/lib/api';
+import type { Organization, Layer, TerraformWorkspace, SyncStatus } from '@/types';
+import { fetchHierarchy, fetchDriftResult, syncWorkspace } from '@/lib/api';
 import { Shield, Server, RefreshCw, Layers, Building2 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -267,63 +267,6 @@ const MOCK_ORG: Organization = {
   ],
 };
 
-const MOCK_WORKSPACE: Workspace = {
-  id: "landing-zone",
-  last_sync: new Date(Date.now() - 8 * 60 * 1000).toISOString(), // 8 min ago
-  status: "drifted",
-  layers: [
-    {
-      id: "org",
-      name: "Organization",
-      last_sync: new Date(Date.now() - 8 * 60 * 1000).toISOString(),
-      status: "clean",
-      workspaces: [
-        { id: "default", layer_id: "org", status: "clean", last_sync: new Date(Date.now() - 8 * 60 * 1000).toISOString() },
-      ],
-    },
-    {
-      id: "network",
-      name: "Network",
-      last_sync: new Date(Date.now() - 8 * 60 * 1000).toISOString(),
-      status: "drifted",
-      workspaces: [
-        { id: "default", layer_id: "network", status: "drifted", last_sync: new Date(Date.now() - 8 * 60 * 1000).toISOString() },
-      ],
-    },
-    {
-      id: "security",
-      name: "Security",
-      last_sync: new Date(Date.now() - 25 * 60 * 1000).toISOString(),
-      status: "clean",
-      workspaces: [
-        { id: "default", layer_id: "security", status: "clean", last_sync: new Date(Date.now() - 25 * 60 * 1000).toISOString() },
-      ],
-    },
-    {
-      id: "projects",
-      name: "Projects",
-      last_sync: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
-      status: "error",
-      workspaces: [
-        { id: "default", layer_id: "projects", status: "error", last_sync: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString() },
-      ],
-    },
-    {
-      id: "apps",
-      name: "Applications",
-      last_sync: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(),
-      status: "clean",
-      workspaces: [
-        { id: "default", layer_id: "apps", status: "clean", last_sync: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString() },
-        { id: "prod",    layer_id: "apps", status: "drifted", last_sync: new Date(Date.now() - 13 * 60 * 60 * 1000).toISOString() },
-        { id: "staging", layer_id: "apps", status: "clean",   last_sync: new Date(Date.now() - 15 * 60 * 60 * 1000).toISOString() },
-        { id: "dev",     layer_id: "apps", status: "clean",   last_sync: new Date(Date.now() - 20 * 60 * 60 * 1000).toISOString() },
-      ],
-    },
-  ],
-};
-
-const DEFAULT_WORKSPACE_ID = "default";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -335,13 +278,104 @@ function countProjectsDeep(node: Organization | import('@/types').Folder): numbe
   return direct + nested;
 }
 
+/** Extract every unique (layerId, tfWorkspaceId) pair referenced by nodes in the hierarchy. */
+function extractLayerPairs(org: Organization): { layerId: string; tfWorkspaceId: string }[] {
+  const seen = new Set<string>();
+  const pairs: { layerId: string; tfWorkspaceId: string }[] = [];
+
+  function add(layerId?: string, workspaceId?: string) {
+    if (!layerId) return;
+    const tfWs = workspaceId ?? 'default';
+    const key = `${layerId}--${tfWs}`;
+    if (!seen.has(key)) { seen.add(key); pairs.push({ layerId, tfWorkspaceId: tfWs }); }
+  }
+
+  function visitFolder(f: import('@/types').Folder) {
+    add(f.layer_id, f.workspace_id);
+    f.folders?.forEach(visitFolder);
+    f.projects?.forEach(p => {
+      add(p.layer_id, p.workspace_id);
+      p.resources?.forEach(r => add(r.layer_id, r.workspace_id));
+    });
+  }
+
+  org.folders?.forEach(visitFolder);
+  org.projects?.forEach(p => {
+    add(p.layer_id, p.workspace_id);
+    p.resources?.forEach(r => add(r.layer_id, r.workspace_id));
+  });
+
+  return pairs;
+}
+
+function worstStatus(statuses: SyncStatus[]): SyncStatus {
+  if (statuses.includes('error')) return 'error';
+  if (statuses.includes('drifted')) return 'drifted';
+  if (statuses.length > 0 && statuses.every(s => s === 'clean')) return 'clean';
+  return 'unknown';
+}
+
+/** Fetch drift results for all (layer, tf-workspace) pairs and build the Layer[] list. */
+async function buildLayers(pairs: { layerId: string; tfWorkspaceId: string }[]): Promise<Layer[]> {
+  const settled = await Promise.allSettled(
+    pairs.map(async ({ layerId, tfWorkspaceId }) => {
+      const drift = await fetchDriftResult(layerId, tfWorkspaceId);
+      return { layerId, tfWorkspaceId, drift };
+    }),
+  );
+
+  const layerMap = new Map<string, Layer>();
+
+  for (const result of settled) {
+    const { layerId, tfWorkspaceId, drift } =
+      result.status === 'fulfilled'
+        ? result.value
+        : { layerId: (result as PromiseRejectedResult).reason?.layerId ?? '', tfWorkspaceId: '', drift: null };
+
+    if (!layerId) continue;
+
+    const tfWs: TerraformWorkspace = {
+      id: tfWorkspaceId,
+      layer_id: layerId,
+      status: drift ? drift.status : 'unknown',
+      last_sync: drift?.scanned_at,
+    };
+
+    const existing = layerMap.get(layerId);
+    if (existing) {
+      existing.workspaces = [...(existing.workspaces ?? []), tfWs];
+    } else {
+      layerMap.set(layerId, {
+        id: layerId,
+        name: layerId,
+        status: 'unknown',
+        last_sync: undefined,
+        workspaces: [tfWs],
+      });
+    }
+  }
+
+  // Derive each layer's status and last_sync from its tf-workspaces.
+  for (const layer of layerMap.values()) {
+    const wsList = layer.workspaces ?? [];
+    layer.status = worstStatus(wsList.map(w => w.status));
+    layer.last_sync = wsList
+      .map(w => w.last_sync)
+      .filter(Boolean)
+      .sort()
+      .at(-1);
+  }
+
+  return [...layerMap.values()];
+}
+
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
 export default function Home() {
   const [org, setOrg] = useState<Organization>(MOCK_ORG);
-  const [workspace, setWorkspace] = useState<Workspace>(MOCK_WORKSPACE);
+  const [layers, setLayers] = useState<Layer[]>([]);
   const [selectedLayerIds, setSelectedLayerIds] = useState<Set<string>>(new Set());
   const [selectedWorkspaceIds, setSelectedWorkspaceIds] = useState<Set<string>>(new Set());
   const [isSyncing, setIsSyncing] = useState(false);
@@ -349,19 +383,22 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [selectedNode, setSelectedNode] = useState<SelectedNode | null>(null);
 
-  // Load hierarchy + workspace metadata on mount
+  // Load hierarchy then derive layers from it on mount
   const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [hier, ws] = await Promise.all([
-        fetchHierarchy(DEFAULT_WORKSPACE_ID),
-        fetchWorkspace(DEFAULT_WORKSPACE_ID),
-      ]);
+      const hier = await fetchHierarchy();
       setOrg(hier);
-      setWorkspace(ws);
+      const pairs = extractLayerPairs(hier);
+      const builtLayers = await buildLayers(pairs);
+      setLayers(builtLayers);
       setError(null);
     } catch (err) {
       console.error('Using mock data as fallback:', err);
+      // Fallback: derive layers from the mock org
+      const pairs = extractLayerPairs(MOCK_ORG);
+      const builtLayers = await buildLayers(pairs);
+      setLayers(builtLayers);
       setError('Live data unreachable — showing fallback data.');
     } finally {
       setIsLoading(false);
@@ -377,15 +414,13 @@ export default function Home() {
     setError(null);
     try {
       const updatedOrg = await syncWorkspace({
-        workspace_id: DEFAULT_WORKSPACE_ID,
         layer_id: selectedLayerIds.size === 1 ? [...selectedLayerIds][0] : 'default',
         bucket: 'terraform-state-lume',
         object: 'terraform.tfstate',
       });
       setOrg(updatedOrg);
-      // Refresh workspace metadata to get updated layer statuses
-      const ws = await fetchWorkspace(DEFAULT_WORKSPACE_ID);
-      setWorkspace(ws);
+      const pairs = extractLayerPairs(updatedOrg);
+      setLayers(await buildLayers(pairs));
     } catch (err) {
       console.error('Sync failed:', err);
       setError('Sync failed. Please check backend logs.');
@@ -395,8 +430,8 @@ export default function Home() {
   };
 
   const totalProjects = countProjectsDeep(org);
-  const cleanLayers = workspace.layers.filter(l => l.status === 'clean').length;
-  const driftedLayers = workspace.layers.filter(l => l.status === 'drifted').length;
+  const cleanLayers = layers.filter(l => l.status === 'clean').length;
+  const driftedLayers = layers.filter(l => l.status === 'drifted').length;
 
   return (
     <main className="min-h-screen bg-[#020617] text-slate-200 selection:bg-blue-500/30">
@@ -459,7 +494,7 @@ export default function Home() {
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-sm text-white/50">Layers</span>
-                <span className="text-lg font-bold text-white">{workspace.layers.length}</span>
+                <span className="text-lg font-bold text-white">{layers.length}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-sm text-white/50">Clean</span>
@@ -474,7 +509,7 @@ export default function Home() {
 
           {/* Workspace layers panel */}
           <WorkspaceLayers
-            workspace={workspace}
+            layers={layers}
             selectedLayerIds={selectedLayerIds}
             selectedWorkspaceIds={selectedWorkspaceIds}
             onToggleLayer={(id) => {
@@ -488,7 +523,7 @@ export default function Home() {
                 return next;
               });
               setSelectedWorkspaceIds(new Set());
-              const layer = workspace.layers.find(l => l.id === id);
+              const layer = layers.find(l => l.id === id);
               if (layer) setSelectedNode({ type: 'layer', data: layer });
             }}
             onToggleWorkspace={(ws: TerraformWorkspace) => {
@@ -540,7 +575,6 @@ export default function Home() {
           <DetailPanel
             node={selectedNode}
             onClose={() => setSelectedNode(null)}
-            workspaceId={workspace.id}
             onSelectTfWorkspace={(ws) => setSelectedNode({ type: 'tf_workspace', data: ws })}
           />
         </div>

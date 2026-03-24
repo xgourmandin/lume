@@ -34,38 +34,28 @@ export interface Organization {
   projects?: Project[];
 }
 
-/** Status of a workspace or layer as returned by the backend. */
-export type SyncStatus = 'clean' | 'drifted' | 'error';
+/** Status of a layer or tf-workspace as returned by the backend. */
+export type SyncStatus = 'clean' | 'drifted' | 'error' | 'unknown';
 
 /** A named Terraform workspace within a layer (e.g. "default", "prod", "staging"). */
 export interface TerraformWorkspace {
   id: string;        // terraform workspace name
   layer_id: string;
   status: SyncStatus;
-  last_sync: string; // ISO-8601
+  last_sync?: string; // ISO-8601 — from the latest drift scan
 }
 
-/** A single Terraform state layer within a workspace. */
+/** A single Terraform state layer, built client-side from the hierarchy + drift results. */
 export interface Layer {
   id: string;
   name: string;
-  last_sync: string; // ISO-8601 date string
-  status: SyncStatus;
-  /** Named Terraform workspaces within this layer. Defaults to [{id:"default"}] when absent. */
+  last_sync?: string; // most recent scanned_at across all tf-workspaces
+  status: SyncStatus; // worst-case of all tf-workspace statuses
   workspaces?: TerraformWorkspace[];
-}
-
-/** Workspace metadata as returned by GET /api/v1/workspaces/:id */
-export interface Workspace {
-  id: string;
-  last_sync: string; // ISO-8601 date string
-  status: SyncStatus;
-  layers: Layer[];
 }
 
 /** Payload for POST /api/v1/hierarchy/sync */
 export interface SyncRequest {
-  workspace_id: string;
   layer_id: string;
   /** Terraform workspace name (e.g. "default", "prod"). Defaults to "default" if omitted. */
   tf_workspace_id?: string;
@@ -73,13 +63,7 @@ export interface SyncRequest {
   object: string;
 }
 
-/** Combined workspace detail: metadata + merged hierarchy */
-export interface WorkspaceDetail {
-  workspace: Workspace;
-  hierarchy: Organization;
-}
-
-/** Result of a `tofu plan -detailed-exitcode` run stored by the drift scanner job. */
+/** Result of a `tofu show -json` plan parsed by the backend drift scanner. */
 export interface DriftResult {
   status: SyncStatus;
   add_count: number;
@@ -88,4 +72,3 @@ export interface DriftResult {
   scanned_at: string; // ISO-8601
   error_message?: string;
 }
-

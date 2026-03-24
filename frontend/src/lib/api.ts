@@ -6,7 +6,7 @@
  * place rather than being scattered across components.
  */
 
-import type { Organization, Workspace, SyncRequest, DriftResult } from '@/types';
+import type { Organization, SyncRequest, DriftResult } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -38,22 +38,17 @@ async function handleResponse<T>(res: Response): Promise<T> {
 // ---------------------------------------------------------------------------
 
 /**
- * Fetch the merged GCP hierarchy for a workspace.
- * Corresponds to GET /api/v1/hierarchy/{workspaceId}
- *
- * Every node in the response carries a layer_id field. Use that to filter
- * the tree client-side without any extra round-trips.
+ * Fetch the merged GCP hierarchy.
+ * Corresponds to GET /api/v1/hierarchy
  */
-export async function fetchHierarchy(workspaceId: string): Promise<Organization> {
-  const res = await fetch(`${BASE_URL}/api/v1/hierarchy/${encodeURIComponent(workspaceId)}`);
+export async function fetchHierarchy(): Promise<Organization> {
+  const res = await fetch(`${BASE_URL}/api/v1/hierarchy`);
   return handleResponse<Organization>(res);
 }
 
 /**
- * Trigger a state sync for a specific workspace layer.
+ * Trigger a state sync for a specific layer.
  * Corresponds to POST /api/v1/hierarchy/sync
- *
- * Returns the freshly merged Organization after the sync.
  */
 export async function syncWorkspace(payload: SyncRequest): Promise<Organization> {
   const res = await fetch(`${BASE_URL}/api/v1/hierarchy/sync`, {
@@ -62,28 +57,6 @@ export async function syncWorkspace(payload: SyncRequest): Promise<Organization>
     body: JSON.stringify(payload),
   });
   return handleResponse<Organization>(res);
-}
-
-// ---------------------------------------------------------------------------
-// Workspace endpoints
-// ---------------------------------------------------------------------------
-
-/**
- * Fetch workspace metadata (id, status, layers, last_sync).
- * Corresponds to GET /api/v1/workspaces/{workspaceId}
- */
-export async function fetchWorkspace(workspaceId: string): Promise<Workspace> {
-  const res = await fetch(`${BASE_URL}/api/v1/workspaces/${encodeURIComponent(workspaceId)}`);
-  return handleResponse<Workspace>(res);
-}
-
-/**
- * Fetch all workspace summaries.
- * Corresponds to GET /api/v1/workspaces
- */
-export async function fetchWorkspaces(): Promise<Workspace[]> {
-  const res = await fetch(`${BASE_URL}/api/v1/workspaces`);
-  return handleResponse<Workspace[]>(res);
 }
 
 // ---------------------------------------------------------------------------
@@ -166,19 +139,18 @@ const MOCK_DRIFT_RESULTS: Record<string, DriftResult> = {
 };
 
 /**
- * Fetch the latest drift scan result for a (workspaceId, layerId, tfWorkspaceId) tuple.
- * Corresponds to GET /api/v1/workspaces/{workspaceId}/drift/{layerId}/{tfWorkspaceId}
+ * Fetch the latest drift scan result for a (layerId, tfWorkspaceId) pair.
+ * Corresponds to GET /api/v1/drift/{layerId}/{tfWorkspaceId}
  *
  * Falls back to mock data when the backend is unreachable.
  */
 export async function fetchDriftResult(
-  workspaceId: string,
   layerId: string,
   tfWorkspaceId: string,
 ): Promise<DriftResult> {
   try {
     const res = await fetch(
-      `${BASE_URL}/api/v1/workspaces/${encodeURIComponent(workspaceId)}/drift/${encodeURIComponent(layerId)}/${encodeURIComponent(tfWorkspaceId)}`,
+      `${BASE_URL}/api/v1/drift/${encodeURIComponent(layerId)}/${encodeURIComponent(tfWorkspaceId)}`,
     );
     return await handleResponse<DriftResult>(res);
   } catch {
@@ -188,4 +160,3 @@ export async function fetchDriftResult(
     throw new Error('Drift result not available');
   }
 }
-

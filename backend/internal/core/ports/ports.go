@@ -18,30 +18,29 @@ type StateParser interface {
 	Parse(ctx context.Context, stateData []byte, layerID, tfWorkspaceID string) (*domain.Organization, error)
 }
 
-// WorkspaceRepository defines the interface for persisting workspace hierarchy data.
+// WorkspaceRepository defines the interface for persisting hierarchy data.
+// There is a single implicit Landing Zone; no workspace identifier is needed.
 type WorkspaceRepository interface {
-	Save(ctx context.Context, workspace *domain.Workspace, hierarchy *domain.Organization) error
-	GetByID(ctx context.Context, id string) (*domain.Workspace, *domain.Organization, error)
-	ListWorkspaces(ctx context.Context) ([]*domain.Workspace, error)
 	// SaveLayer persists the parsed Organization for a single (layerID, tfWorkspaceID) pair.
-	// The document is keyed by "{layerID}--{tfWorkspaceID}" under the workspace's layers
-	// sub-collection so that each Terraform workspace has its own isolated state snapshot.
-	SaveLayer(ctx context.Context, workspaceID, layerID, tfWorkspaceID string, org *domain.Organization) error
-	// GetMergedHierarchy fetches all layer/workspace state snapshots for the workspace
-	// and returns a single Organization that is the result of merging them in order.
-	GetMergedHierarchy(ctx context.Context, workspaceID string) (*domain.Organization, error)
-	// SaveDriftResult persists a drift report received from the CI/CD pipeline for a single
-	// (layerID, tfWorkspaceID) pair and updates the status on the parent workspace.
-	SaveDriftResult(ctx context.Context, workspaceID, layerID, tfWorkspaceID string, result *domain.DriftResult) error
-	// GetDriftResult fetches the latest drift report for a single
-	// (workspaceID, layerID, tfWorkspaceID) tuple.
-	GetDriftResult(ctx context.Context, workspaceID, layerID, tfWorkspaceID string) (*domain.DriftResult, error)
+	SaveLayer(ctx context.Context, layerID, tfWorkspaceID string, org *domain.Organization) error
+	// GetMergedHierarchy fetches all layer snapshots and returns a single merged Organization.
+	GetMergedHierarchy(ctx context.Context) (*domain.Organization, error)
+	// SaveDriftResult persists a drift report for a (layerID, tfWorkspaceID) pair.
+	SaveDriftResult(ctx context.Context, layerID, tfWorkspaceID string, result *domain.DriftResult) error
+	// GetDriftResult fetches the latest drift report for a (layerID, tfWorkspaceID) pair.
+	GetDriftResult(ctx context.Context, layerID, tfWorkspaceID string) (*domain.DriftResult, error)
+}
+
+// PlanParser parses a Terraform/OpenTofu JSON plan file and derives a DriftResult.
+// The status, counts, and timestamp are all computed by the implementation;
+// callers do not supply them.
+type PlanParser interface {
+	ParseDrift(ctx context.Context, planData []byte) (*domain.DriftResult, error)
 }
 
 // TofuService defines the orchestration logic for the Tofu/Terraform features.
 type TofuService interface {
 	// SyncWorkspace downloads, parses, and persists the state file identified by
-	// (workspaceID, layerID, tfWorkspaceID). tfWorkspaceID is the Terraform workspace
-	// name (e.g. "default", "prod", "staging") — distinct from the top-level workspaceID.
-	SyncWorkspace(ctx context.Context, workspaceID, layerID, tfWorkspaceID, bucket, object string) (*domain.Organization, error)
+	// (layerID, tfWorkspaceID). The workspace is always the implicit single workspace.
+	SyncWorkspace(ctx context.Context, layerID, tfWorkspaceID, bucket, object string) (*domain.Organization, error)
 }

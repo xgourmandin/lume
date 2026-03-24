@@ -3,7 +3,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Layers, CheckCircle2, AlertTriangle, XCircle, Clock, ChevronDown, GitBranch, Search } from 'lucide-react';
-import type { Workspace, Layer, TerraformWorkspace, SyncStatus } from '@/types';
+import type { Layer, TerraformWorkspace, SyncStatus } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Status helpers
@@ -28,6 +28,12 @@ const statusConfig: Record<SyncStatus, { label: string; icon: React.ReactNode; p
     pill: 'bg-red-500/10 text-red-400 border-red-500/20',
     dot: 'bg-red-400',
   },
+  unknown: {
+    label: 'Unknown',
+    icon: <Clock className="w-3.5 h-3.5" />,
+    pill: 'bg-slate-500/10 text-slate-400 border-slate-500/20',
+    dot: 'bg-slate-500',
+  },
 };
 
 function StatusBadge({ status }: { status: SyncStatus }) {
@@ -40,7 +46,7 @@ function StatusBadge({ status }: { status: SyncStatus }) {
   );
 }
 
-function formatDate(iso: string): string {
+function formatDate(iso: string | undefined): string {
   if (!iso) return '—';
   try {
     return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(iso));
@@ -320,7 +326,7 @@ const LayerRow: React.FC<LayerRowProps> = ({
 // ---------------------------------------------------------------------------
 
 interface WorkspaceLayersProps {
-  workspace: Workspace;
+  layers: Layer[];
   /** Set of selected layer IDs; empty set = "All layers". */
   selectedLayerIds: Set<string>;
   /** Set of selected Terraform workspace names (e.g. "prod", "staging"). */
@@ -330,15 +336,22 @@ interface WorkspaceLayersProps {
   onClearSelection: () => void;
 }
 
+// Derive the worst-case status across a list of statuses.
+function worstStatus(statuses: SyncStatus[]): SyncStatus {
+  if (statuses.includes('error')) return 'error';
+  if (statuses.includes('drifted')) return 'drifted';
+  if (statuses.length > 0 && statuses.every(s => s === 'clean')) return 'clean';
+  return 'unknown';
+}
+
 export const WorkspaceLayers: React.FC<WorkspaceLayersProps> = ({
-  workspace,
+  layers,
   selectedLayerIds,
   selectedWorkspaceIds,
   onToggleLayer,
   onToggleWorkspace,
   onClearSelection,
 }) => {
-  const layers = workspace.layers ?? [];
   const hasLayerSelection = selectedLayerIds.size > 0;
   const hasWorkspaceSelection = selectedWorkspaceIds.size > 0;
   const hasSelection = hasLayerSelection || hasWorkspaceSelection;
@@ -347,6 +360,12 @@ export const WorkspaceLayers: React.FC<WorkspaceLayersProps> = ({
     (acc, l) => { acc[l.status] = (acc[l.status] ?? 0) + 1; return acc; },
     {} as Record<SyncStatus, number>,
   );
+
+  const overallStatus = worstStatus(layers.map(l => l.status));
+  const lastSyncAll = layers
+    .flatMap(l => l.last_sync ? [l.last_sync] : [])
+    .sort()
+    .at(-1);
 
   return (
     <motion.div
@@ -359,9 +378,8 @@ export const WorkspaceLayers: React.FC<WorkspaceLayersProps> = ({
         <div className="flex items-center gap-2">
           <Layers className="w-4 h-4 text-blue-400" />
           <h3 className="text-sm font-semibold text-white">Layers & Workspaces</h3>
-          <span className="text-[10px] font-mono text-white/30">{workspace.id}</span>
         </div>
-        <StatusBadge status={workspace.status} />
+        <StatusBadge status={overallStatus} />
       </div>
 
       {/* Stats row */}
@@ -432,11 +450,13 @@ export const WorkspaceLayers: React.FC<WorkspaceLayersProps> = ({
         </div>
       )}
 
-      {/* Workspace last sync */}
-      <p className="text-[10px] text-white/25 flex items-center gap-1 pt-1">
-        <Clock className="w-2.5 h-2.5" />
-        Workspace last synced: {formatDate(workspace.last_sync)}
-      </p>
+      {/* Last synced footer */}
+      {lastSyncAll && (
+        <p className="text-[10px] text-white/25 flex items-center gap-1 pt-1">
+          <Clock className="w-2.5 h-2.5" />
+          Last synced: {formatDate(lastSyncAll)}
+        </p>
+      )}
     </motion.div>
   );
 };

@@ -62,6 +62,7 @@ func main() {
 
 			// Core Services
 			services.NewTofuParser,
+			services.NewTofuPlanParser,
 			services.NewTofuService,
 
 			// Server

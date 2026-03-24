@@ -67,13 +67,11 @@ function ChangeCounter({
 // ---------------------------------------------------------------------------
 
 interface DriftReportProps {
-  workspaceId: string;
   layerId: string;
   tfWorkspaceId: string;
 }
 
 export const DriftReport: React.FC<DriftReportProps> = ({
-  workspaceId,
   layerId,
   tfWorkspaceId,
 }) => {
@@ -86,14 +84,14 @@ export const DriftReport: React.FC<DriftReportProps> = ({
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchDriftResult(workspaceId, layerId, tfWorkspaceId);
+      const data = await fetchDriftResult(layerId, tfWorkspaceId);
       setResult(data);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error');
     } finally {
       setLoading(false);
     }
-  }, [workspaceId, layerId, tfWorkspaceId]);
+  }, [layerId, tfWorkspaceId]);
 
   useEffect(() => {
     load();

@@ -24,7 +24,6 @@ func (h *WebhookHandler) Register(app *mach.App) {
 
 func (h *WebhookHandler) HandleWebhook(c *mach.Context) {
 	var body struct {
-		WorkspaceID   string `json:"workspace_id"`
 		LayerID       string `json:"layer_id"`
 		TFWorkspaceID string `json:"tf_workspace_id"` // e.g. "prod"; defaults to "default"
 		Bucket        string `json:"bucket"`
@@ -43,7 +42,7 @@ func (h *WebhookHandler) HandleWebhook(c *mach.Context) {
 		body.TFWorkspaceID = "default"
 	}
 
-	org, err := h.service.SyncWorkspace(c.Request.Context(), body.WorkspaceID, body.LayerID, body.TFWorkspaceID, body.Bucket, body.Object)
+	org, err := h.service.SyncWorkspace(c.Request.Context(), body.LayerID, body.TFWorkspaceID, body.Bucket, body.Object)
 	if err != nil {
 		c.JSON(500, map[string]string{"error": err.Error()})
 		return
@@ -63,18 +62,18 @@ type pubSubMessage struct {
 // See: https://cloud.google.com/storage/docs/pubsub-notifications#format
 type gcsNotification struct {
 	Bucket    string `json:"bucket"`
-	Name      string `json:"name"`      // full object path, e.g. prod/network/default.tfstate
+	Name      string `json:"name"`      // full object path, e.g. apps/prod.tfstate
 	EventType string `json:"eventType"` // e.g. OBJECT_FINALIZE
 }
 
 // HandleGCSNotification handles Pub/Sub push messages sent by GCS object change notifications.
-// Only OBJECT_FINALIZE events for .tfstate files trigger a workspace sync; all other events
+// Only OBJECT_FINALIZE events for .tfstate files trigger a hierarchy sync; all other events
 // are acknowledged with 200 OK and ignored.
 //
-// GCS object path convention: {workspaceID}/{layerID}/{tfWorkspaceID}.tfstate
-//   - "lz/apps/prod.tfstate"    → workspace="lz",      layer="apps",    tfWorkspace="prod"
-//   - "lz/network/default.tfstate" → workspace="lz",   layer="network", tfWorkspace="default"
-//   - "default.tfstate"         → workspace="default",  layer="default", tfWorkspace="default"
+// GCS object path convention: {layerID}/{tfWorkspaceID}.tfstate
+//   - "apps/prod.tfstate"    → layer="apps",    tfWorkspace="prod"
+//   - "network/default.tfstate" → layer="network", tfWorkspace="default"
+//   - "prod.tfstate"         → layer="default",  tfWorkspace="prod"
 func (h *WebhookHandler) HandleGCSNotification(c *mach.Context) {
 	var envelope pubSubMessage
 	if err := c.DecodeJSON(&envelope); err != nil {
@@ -100,9 +99,9 @@ func (h *WebhookHandler) HandleGCSNotification(c *mach.Context) {
 		return
 	}
 
-	workspaceID, layerID, tfWorkspaceID := parseObjectPath(notification.Name)
+	layerID, tfWorkspaceID := parseObjectPath(notification.Name)
 
-	org, err := h.service.SyncWorkspace(c.Request.Context(), workspaceID, layerID, tfWorkspaceID, notification.Bucket, notification.Name)
+	org, err := h.service.SyncWorkspace(c.Request.Context(), layerID, tfWorkspaceID, notification.Bucket, notification.Name)
 	if err != nil {
 		c.JSON(500, map[string]string{"error": err.Error()})
 		return
@@ -111,33 +110,25 @@ func (h *WebhookHandler) HandleGCSNotification(c *mach.Context) {
 	c.JSON(200, org)
 }
 
-// parseObjectPath derives workspaceID, layerID, and tfWorkspaceID from a GCS object path.
+// parseObjectPath derives layerID and tfWorkspaceID from a GCS object path.
 // The Terraform workspace name is encoded in the filename (without .tfstate extension).
 //
-//	"lz/apps/prod.tfstate"        → ("lz",      "apps",    "prod")
-//	"lz/network/default.tfstate"  → ("lz",      "network", "default")
-//	"lz/default.tfstate"          → ("lz",      "default", "default")
-//	"default.tfstate"             → ("default",  "default", "default")
-func parseObjectPath(objectPath string) (workspaceID, layerID, tfWorkspaceID string) {
+//	"apps/prod.tfstate"           → ("apps",    "prod")
+//	"network/default.tfstate"     → ("network", "default")
+//	"prod.tfstate"                → ("default", "prod")
+func parseObjectPath(objectPath string) (layerID, tfWorkspaceID string) {
 	lastSlash := strings.LastIndex(objectPath, "/")
 	filename := strings.TrimSuffix(objectPath[lastSlash+1:], ".tfstate")
 	if lastSlash == -1 {
-		// Flat file at bucket root: workspace name = filename, no layer context.
-		return filename, "default", "default"
+		// Flat file at bucket root: tfWorkspace = filename, layer = default.
+		return "default", filename
 	}
 
 	// The TF workspace name is the filename (e.g. "prod" from "prod.tfstate").
 	tfWorkspaceID = filename
-
-	dir := objectPath[:lastSlash] // e.g. "lz/apps" or "lz"
+	// The last path segment before the filename is the layer ID.
+	dir := objectPath[:lastSlash]
 	segments := strings.Split(dir, "/")
-
-	switch len(segments) {
-	case 1:
-		// e.g. "lz/prod.tfstate" → workspace=lz, layer=default, tfWorkspace=prod
-		return segments[0], "default", tfWorkspaceID
-	default:
-		// e.g. "lz/apps/prod.tfstate" → workspace=lz, layer=apps, tfWorkspace=prod
-		return segments[len(segments)-2], segments[len(segments)-1], tfWorkspaceID
-	}
+	layerID = segments[len(segments)-1]
+	return layerID, tfWorkspaceID
 }

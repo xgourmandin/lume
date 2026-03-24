@@ -3,79 +3,25 @@
 ### GET Health check
 GET {{baseUrl}}/health
 
-### ─────────────────────────────────────────
-### Workspaces
-### ─────────────────────────────────────────
+// ─────────────────────────────────────────
+// Hierarchy
+// ─────────────────────────────────────────
 
-### List all workspaces
-GET {{baseUrl}}/api/v1/workspaces
+### GET Get the merged GCP hierarchy
+GET {{baseUrl}}/api/v1/hierarchy
 
-### Get a workspace by ID
-GET {{baseUrl}}/api/v1/workspaces/lz
-
-### ─────────────────────────────────────────
-### Drift reports
-### ─────────────────────────────────────────
-
-### Get the latest drift result for a (workspace, layer, tf-workspace) tuple
-GET {{baseUrl}}/api/v1/workspaces/lz/drift/apps/prod
-
-### Report drift – drifted (posted by CI/CD pipeline after tofu plan)
-POST {{baseUrl}}/api/v1/workspaces/lz/drift/apps/prod
-Content-Type: application/json
-
-{
-  "status": "drifted",
-  "add_count": 2,
-  "change_count": 1,
-  "destroy_count": 0,
-  "scanned_at": "2026-03-23T10:00:00Z"
-}
-
-### Report drift – clean
-POST {{baseUrl}}/api/v1/workspaces/lz/drift/apps/prod
-Content-Type: application/json
-
-{
-  "status": "clean",
-  "add_count": 0,
-  "change_count": 0,
-  "destroy_count": 0,
-  "scanned_at": "2026-03-23T10:00:00Z"
-}
-
-### Report drift – error (plan execution failed in CI)
-POST {{baseUrl}}/api/v1/workspaces/lz/drift/apps/prod
-Content-Type: application/json
-
-{
-  "status": "error",
-  "add_count": 0,
-  "change_count": 0,
-  "destroy_count": 0,
-  "error_message": "tofu init failed: unable to reach backend"
-}
-
-### ─────────────────────────────────────────
-### Hierarchy
-### ─────────────────────────────────────────
-
-### Get the merged GCP hierarchy for a workspace
-GET {{baseUrl}}/api/v1/hierarchy/lz
-
-### Sync hierarchy from a GCS state file
+### POST Sync hierarchy from a GCS state file
 POST {{baseUrl}}/api/v1/hierarchy/sync
 Content-Type: application/json
 
 {
-  "workspace_id": "lz",
   "layer_id": "apps",
   "tf_workspace_id": "prod",
   "bucket": "my-tf-states",
-  "object": "lz/apps/prod.tfstate"
+  "object": "apps/prod.tfstate"
 }
 
-### Sync hierarchy – defaults (omitted IDs fall back to "default")
+### POST Sync hierarchy – defaults (omitted IDs fall back to "default")
 POST {{baseUrl}}/api/v1/hierarchy/sync
 Content-Type: application/json
 
@@ -84,66 +30,87 @@ Content-Type: application/json
   "object": "default.tfstate"
 }
 
-### ─────────────────────────────────────────
-### Webhooks – Git
-### ─────────────────────────────────────────
+###
+// ─────────────────────────────────────────
+// Drift reports
+// ─────────────────────────────────────────
 
-### Git webhook – explicit workspace / layer / tf-workspace
+### GET Get the latest drift result for a (layer, tf-workspace) tuple
+GET {{baseUrl}}/api/v1/drift/apps/prod
+
+### POST Report drift – upload a tofu plan JSON file (multipart/form-data)
+# Generate the plan file with: tofu plan -out=plan.tfplan && tofu show -json plan.tfplan > plan.json
+POST {{baseUrl}}/api/v1/drift/apps/prod
+Content-Type: multipart/form-data; boundary=boundary
+
+--boundary
+Content-Disposition: form-data; name="plan"; filename="plan.json"
+Content-Type: application/json
+
+< ./plan.json
+--boundary--
+
+###
+// ─────────────────────────────────────────
+// Webhooks – Git
+// ─────────────────────────────────────────
+
+### POST Git webhook – explicit layer / tf-workspace
 POST {{baseUrl}}/api/v1/webhooks/git
 Content-Type: application/json
 
 {
-  "workspace_id": "lz",
   "layer_id": "network",
   "tf_workspace_id": "prod",
   "bucket": "my-tf-states",
-  "object": "lz/network/prod.tfstate"
+  "object": "network/prod.tfstate"
 }
 
-### Git webhook – minimal body (layer + tf_workspace default to "default")
+### POST Git webhook – minimal body (layer + tf_workspace default to "default")
 POST {{baseUrl}}/api/v1/webhooks/git
 Content-Type: application/json
 
 {
-  "workspace_id": "lz",
   "bucket": "my-tf-states",
-  "object": "lz/default.tfstate"
+  "object": "default.tfstate"
 }
 
-### ─────────────────────────────────────────
-### Webhooks – GCS (Pub/Sub push)
-### ─────────────────────────────────────────
-### message.data is base64( {"bucket":"my-tf-states","name":"lz/apps/prod.tfstate","eventType":"OBJECT_FINALIZE"} )
+###
+// ─────────────────────────────────────────
+// Webhooks – GCS (Pub/Sub push)
+// message.data is base64( {"bucket":"my-tf-states","name":"apps/prod.tfstate","eventType":"OBJECT_FINALIZE"} )
+// ─────────────────────────────────────────
 
-### GCS notification – OBJECT_FINALIZE → triggers sync
+### POST GCS notification – OBJECT_FINALIZE → triggers sync
 POST {{baseUrl}}/api/v1/webhooks/gcs
 Content-Type: application/json
 
 {
   "message": {
-    "data": "eyJidWNrZXQiOiJteS10Zi1zdGF0ZXMiLCJuYW1lIjoibHovYXBwcy9wcm9kLnRmc3RhdGUiLCJldmVudFR5cGUiOiJPQkpFQ1RfRklOQUxJWkUifQ=="
+    "data": "eyJidWNrZXQiOiJteS10Zi1zdGF0ZXMiLCJuYW1lIjoiYXBwcy9wcm9kLnRmc3RhdGUiLCJldmVudFR5cGUiOiJPQkpFQ1RfRklOQUxJWkUifQ=="
   }
 }
 
-### GCS notification – OBJECT_DELETE → ignored (200 {"status":"ignored"})
-### message.data is base64( {"bucket":"my-tf-states","name":"lz/apps/prod.tfstate","eventType":"OBJECT_DELETE"} )
+###
+// message.data is base64( {"bucket":"my-tf-states","name":"apps/prod.tfstate","eventType":"OBJECT_DELETE"} )
+### POST GCS notification – OBJECT_DELETE → ignored (200 {"status":"ignored"})
 POST {{baseUrl}}/api/v1/webhooks/gcs
 Content-Type: application/json
 
 {
   "message": {
-    "data": "eyJidWNrZXQiOiJteS10Zi1zdGF0ZXMiLCJuYW1lIjoibHovYXBwcy9wcm9kLnRmc3RhdGUiLCJldmVudFR5cGUiOiJPQkpFQ1RfREVMRVRFIn0="
+    "data": "eyJidWNrZXQiOiJteS10Zi1zdGF0ZXMiLCJuYW1lIjoiYXBwcy9wcm9kLnRmc3RhdGUiLCJldmVudFR5cGUiOiJPQkpFQ1RfREVMRVRFIn0="
   }
 }
 
-### GCS notification – non-.tfstate file → ignored (200 {"status":"ignored"})
-### message.data is base64( {"bucket":"my-tf-states","name":"lz/apps/plan.out","eventType":"OBJECT_FINALIZE"} )
+###
+// message.data is base64( {"bucket":"my-tf-states","name":"apps/plan.out","eventType":"OBJECT_FINALIZE"} )
+### POST GCS notification – non-.tfstate file → ignored (200 {"status":"ignored"})
 POST {{baseUrl}}/api/v1/webhooks/gcs
 Content-Type: application/json
 
 {
   "message": {
-    "data": "eyJidWNrZXQiOiJteS10Zi1zdGF0ZXMiLCJuYW1lIjoibHovYXBwcy9wbGFuLm91dCIsImV2ZW50VHlwZSI6Ik9CSkVDVF9GSU5BTElaRSJ9"
+    "data": "eyJidWNrZXQiOiJteS10Zi1zdGF0ZXMiLCJuYW1lIjoiYXBwcy9wbGFuLm91dCIsImV2ZW50VHlwZSI6Ik9CSkVDVF9GSU5BTElaRSJ9"
   }
 }
-

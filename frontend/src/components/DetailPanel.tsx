@@ -17,8 +17,6 @@ export type SelectedNode =
 interface DetailPanelProps {
   node: SelectedNode | null;
   onClose: () => void;
-  /** Lume workspace ID — needed to fetch drift results. */
-  workspaceId: string;
   /** Called when the user clicks a TF workspace chip inside LayerDetail. */
   onSelectTfWorkspace?: (ws: TerraformWorkspace) => void;
 }
@@ -152,10 +150,8 @@ function ResourceDetail({ data }: { data: Resource }) {
 
 function TfWorkspaceDetail({
   data,
-  workspaceId,
 }: {
   data: TerraformWorkspace;
-  workspaceId: string;
 }) {
   const colorClass = statusColors[data.status] ?? statusColors.error;
   return (
@@ -177,9 +173,8 @@ function TfWorkspaceDetail({
         </div>
       </div>
 
-      {/* Always show drift report — fetches latest scan result from Firestore */}
+      {/* Always show drift report — fetches latest scan result */}
       <DriftReport
-        workspaceId={workspaceId}
         layerId={data.layer_id}
         tfWorkspaceId={data.id}
       />
@@ -191,15 +186,17 @@ const statusColors: Record<SyncStatus, string> = {
   clean:   'text-emerald-400 bg-emerald-400/10 border-emerald-400/20',
   drifted: 'text-amber-400 bg-amber-400/10 border-amber-400/20',
   error:   'text-red-400 bg-red-400/10 border-red-400/20',
+  unknown: 'text-slate-400 bg-slate-400/10 border-slate-400/20',
 };
 
 const statusIcons: Record<SyncStatus, React.ReactNode> = {
   clean:   <CheckCircle2 className="w-4 h-4" />,
   drifted: <AlertTriangle className="w-4 h-4" />,
   error:   <XCircle className="w-4 h-4" />,
+  unknown: <Clock className="w-4 h-4" />,
 };
 
-function formatDate(iso: string): string {
+function formatDate(iso: string | undefined): string {
   if (!iso) return '—';
   try {
     return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(iso));
@@ -324,7 +321,7 @@ const typeConfig = {
   },
 };
 
-export const DetailPanel: React.FC<DetailPanelProps> = ({ node, onClose, workspaceId, onSelectTfWorkspace }) => {
+export const DetailPanel: React.FC<DetailPanelProps> = ({ node, onClose, onSelectTfWorkspace }) => {
   return (
     <AnimatePresence>
       {node && (
@@ -383,7 +380,6 @@ export const DetailPanel: React.FC<DetailPanelProps> = ({ node, onClose, workspa
           {node.type === 'tf_workspace' && (
             <TfWorkspaceDetail
               data={node.data as TerraformWorkspace}
-              workspaceId={workspaceId}
             />
           )}
         </motion.div>
