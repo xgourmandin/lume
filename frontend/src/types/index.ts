@@ -63,6 +63,21 @@ export interface SyncRequest {
   object: string;
 }
 
+
+/** Per-object error from a bulk sync. */
+export interface SyncObjectError {
+  object: string;
+  error: string;
+}
+
+/** Response from POST /api/v1/hierarchy/sync-all */
+export interface SyncAllResult {
+  synced: number;
+  failed: number;
+  errors?: SyncObjectError[];
+  hierarchy: Organization;
+}
+
 /** Result of a `tofu show -json` plan parsed by the backend drift scanner. */
 export interface DriftResult {
   status: SyncStatus;

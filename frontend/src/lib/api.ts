@@ -1,19 +1,23 @@
 /**
  * Backend API client for Lume / GCP Terraform UI.
  *
- * All communication with the Go backend goes through this module so that
- * base-URL configuration, error handling and response typing live in one
- * place rather than being scattered across components.
+ * All communication with the Go backend goes through the Next.js API route
+ * handlers (/api/v1/...) which proxy requests to the backend using the
+ * server-side `API_URL` environment variable.  No public/client-side env var
+ * is required for routing — all fetch calls use relative URLs so they work
+ * correctly in both SSR and client-side rendering contexts.
  */
 
-import type { Organization, SyncRequest, DriftResult } from '@/types';
+import type { Organization, SyncRequest, SyncAllResult, DriftResult } from '@/types';
 
 // ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
 
-const BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, '') ?? 'http://localhost:3000';
+// Always use the Next.js API routes (relative paths).  The server route
+// handlers resolve the actual backend URL via the server-only `API_URL` env
+// var, keeping it out of the client bundle entirely.
+const BASE_URL = '/api/v1';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -39,24 +43,35 @@ async function handleResponse<T>(res: Response): Promise<T> {
 
 /**
  * Fetch the merged GCP hierarchy.
- * Corresponds to GET /api/v1/hierarchy
+ * Proxied via Next.js → GET /api/v1/hierarchy → backend
  */
 export async function fetchHierarchy(): Promise<Organization> {
-  const res = await fetch(`${BASE_URL}/api/v1/hierarchy`);
+  const res = await fetch(`${BASE_URL}/hierarchy`);
   return handleResponse<Organization>(res);
 }
 
 /**
  * Trigger a state sync for a specific layer.
- * Corresponds to POST /api/v1/hierarchy/sync
+ * Proxied via Next.js → POST /api/v1/hierarchy/sync → backend
  */
 export async function syncWorkspace(payload: SyncRequest): Promise<Organization> {
-  const res = await fetch(`${BASE_URL}/api/v1/hierarchy/sync`, {
+  const res = await fetch(`${BASE_URL}/hierarchy/sync`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
   return handleResponse<Organization>(res);
+}
+
+/**
+ * Sync every .tfstate file found in the configured GCS bucket.
+ * Proxied via Next.js → POST /api/v1/hierarchy/sync-all → backend
+ */
+export async function syncAllWorkspaces(): Promise<SyncAllResult> {
+  const res = await fetch(`${BASE_URL}/hierarchy/sync-all`, {
+    method: 'POST',
+  });
+  return handleResponse<SyncAllResult>(res);
 }
 
 // ---------------------------------------------------------------------------
@@ -140,7 +155,7 @@ const MOCK_DRIFT_RESULTS: Record<string, DriftResult> = {
 
 /**
  * Fetch the latest drift scan result for a (layerId, tfWorkspaceId) pair.
- * Corresponds to GET /api/v1/drift/{layerId}/{tfWorkspaceId}
+ * Proxied via Next.js → GET /api/v1/drift/{layerId}/{tfWorkspaceId} → backend
  *
  * Falls back to mock data when the backend is unreachable.
  */
@@ -150,7 +165,7 @@ export async function fetchDriftResult(
 ): Promise<DriftResult> {
   try {
     const res = await fetch(
-      `${BASE_URL}/api/v1/drift/${encodeURIComponent(layerId)}/${encodeURIComponent(tfWorkspaceId)}`,
+      `${BASE_URL}/drift/${encodeURIComponent(layerId)}/${encodeURIComponent(tfWorkspaceId)}`,
     );
     return await handleResponse<DriftResult>(res);
   } catch {

@@ -1,0 +1,26 @@
+# Dependencies / build artifacts
+node_modules/
+.next/
+out/
+
+# Tests & linting
+**/*.test.*
+**/*.spec.*
+coverage/
+
+# Git
+.git/
+.gitignore
+
+# Editor / OS
+.idea/
+.vscode/
+*.DS_Store
+
+# Docker itself
+Dockerfile
+.dockerignore
+
+# Docs / config only needed locally
+README.md
+

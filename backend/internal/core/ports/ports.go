@@ -6,9 +6,12 @@ import (
 	"github.com/lume/backend/internal/core/domain"
 )
 
-// StateDownloader defines the interface for fetching the .tfstate file.
+// StateDownloader defines the interface for fetching and listing .tfstate files.
 type StateDownloader interface {
 	DownloadState(ctx context.Context, bucketName, objectName string) ([]byte, error)
+	// ListStateObjects returns the object names of every .tfstate file in the
+	// configured bucket.
+	ListStateObjects(ctx context.Context) ([]string, error)
 }
 
 // StateParser defines the interface for parsing the .tfstate JSON into a hierarchy.
@@ -43,4 +46,9 @@ type TofuService interface {
 	// SyncWorkspace downloads, parses, and persists the state file identified by
 	// (layerID, tfWorkspaceID). The workspace is always the implicit single workspace.
 	SyncWorkspace(ctx context.Context, layerID, tfWorkspaceID, bucket, object string) (*domain.Organization, error)
+	// SyncAllWorkspaces lists every .tfstate object in the configured GCS bucket
+	// and calls SyncWorkspace for each one. layerID and tfWorkspaceID are
+	// derived from the object path: the directory becomes the layerID and the
+	// filename (without .tfstate) becomes the tfWorkspaceID.
+	SyncAllWorkspaces(ctx context.Context) (*domain.SyncAllResult, error)
 }

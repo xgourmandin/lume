@@ -4,9 +4,10 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { HierarchyTree } from '@/components/HierarchyTree';
 import { DetailPanel } from '@/components/DetailPanel';
 import { WorkspaceLayers } from '@/components/WorkspaceLayers';
+import { SyncAllModal } from '@/components/SyncAllModal';
 import type { SelectedNode } from '@/components/DetailPanel';
 import type { Organization, Layer, TerraformWorkspace, SyncStatus } from '@/types';
-import { fetchHierarchy, fetchDriftResult, syncWorkspace } from '@/lib/api';
+import { fetchHierarchy, fetchDriftResult, syncAllWorkspaces } from '@/lib/api';
 import { Shield, Server, RefreshCw, Layers, Building2 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -382,6 +383,7 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedNode, setSelectedNode] = useState<SelectedNode | null>(null);
+  const [syncAllOpen, setSyncAllOpen] = useState(false);
 
   // Load hierarchy then derive layers from it on mount
   const loadData = useCallback(async () => {
@@ -409,24 +411,20 @@ export default function Home() {
     loadData();
   }, [loadData]);
 
-  const handleSync = async () => {
+  const handleSyncAll = async () => {
     setIsSyncing(true);
     setError(null);
     try {
-      const updatedOrg = await syncWorkspace({
-        layer_id: selectedLayerIds.size === 1 ? [...selectedLayerIds][0] : 'default',
-        bucket: 'terraform-state-lume',
-        object: 'terraform.tfstate',
-      });
-      setOrg(updatedOrg);
-      const pairs = extractLayerPairs(updatedOrg);
-      setLayers(await buildLayers(pairs));
-    } catch (err) {
-      console.error('Sync failed:', err);
-      setError('Sync failed. Please check backend logs.');
+      return await syncAllWorkspaces();
     } finally {
       setIsSyncing(false);
     }
+  };
+
+  const handleSyncAllSuccess = async (result: import('@/types').SyncAllResult) => {
+    setOrg(result.hierarchy);
+    const pairs = extractLayerPairs(result.hierarchy);
+    setLayers(await buildLayers(pairs));
   };
 
   const totalProjects = countProjectsDeep(org);
@@ -465,12 +463,12 @@ export default function Home() {
             </span>
           )}
           <button
-            onClick={handleSync}
+            onClick={() => setSyncAllOpen(true)}
             disabled={isSyncing || isLoading}
             className={`flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 rounded-full text-sm font-medium transition-all active:scale-95 border border-white/10 ${(isSyncing || isLoading) ? 'opacity-50 cursor-not-allowed' : ''}`}
           >
             <RefreshCw className={`w-4 h-4 text-emerald-400 ${isSyncing ? 'animate-spin' : ''}`} />
-            <span>{isSyncing ? 'Syncing…' : 'Sync'}</span>
+            <span>{isSyncing ? 'Syncing…' : 'Sync All'}</span>
           </button>
           <div className="w-10 h-10 rounded-full bg-blue-500/20 border border-blue-500/30 flex items-center justify-center">
             <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
@@ -579,6 +577,13 @@ export default function Home() {
           />
         </div>
       </div>
+
+      <SyncAllModal
+        open={syncAllOpen}
+        onClose={() => setSyncAllOpen(false)}
+        onSync={handleSyncAll}
+        onSuccess={handleSyncAllSuccess}
+      />
     </main>
   );
 }

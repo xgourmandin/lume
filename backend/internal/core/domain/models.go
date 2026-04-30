@@ -20,6 +20,20 @@ type DriftResult struct {
 	ErrorMessage string    `json:"error_message,omitempty"`
 }
 
+// SyncAllResult captures the outcome of a bulk bucket synchronisation.
+type SyncAllResult struct {
+	Synced    int               `json:"synced"`
+	Failed    int               `json:"failed"`
+	Errors    []SyncObjectError `json:"errors,omitempty"`
+	Hierarchy *Organization     `json:"hierarchy,omitempty"`
+}
+
+// SyncObjectError records which GCS object failed and why.
+type SyncObjectError struct {
+	Object string `json:"object"`
+	Error  string `json:"error"`
+}
+
 // Organization represents the root of the GCP hierarchy.
 type Organization struct {
 	ID          string     `json:"id"`

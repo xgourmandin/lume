@@ -20,6 +20,7 @@ func NewWorkspaceHandler(repo ports.WorkspaceRepository, service ports.TofuServi
 func (h *WorkspaceHandler) Register(app *mach.App) {
 	app.GET("/api/v1/hierarchy", h.GetHierarchy)
 	app.POST("/api/v1/hierarchy/sync", h.SyncHierarchy)
+	app.POST("/api/v1/hierarchy/sync-all", h.SyncAllHierarchy)
 	app.GET("/api/v1/drift/{layerId}/{tfWorkspace}", h.GetDriftResult)
 	app.POST("/api/v1/drift/{layerId}/{tfWorkspace}", h.ReportDrift)
 }
@@ -136,4 +137,29 @@ func (h *WorkspaceHandler) SyncHierarchy(c *mach.Context) {
 	}
 
 	c.JSON(200, org)
+}
+
+// SyncAllHierarchy lists every .tfstate file in the configured GCS bucket and
+// syncs them all in one shot. The layerID and tfWorkspaceID for each object are
+// inferred from its path: the directory segment becomes the layerID and the
+// filename (without the .tfstate extension) becomes the tfWorkspaceID.
+//
+// Corresponds to POST /api/v1/hierarchy/sync-all
+//
+// Response body:
+//
+//	{
+//	  "synced":    5,
+//	  "failed":    1,
+//	  "errors":    [{"object": "apps/broken.tfstate", "error": "..."}],
+//	  "hierarchy": { ... }
+//	}
+func (h *WorkspaceHandler) SyncAllHierarchy(c *mach.Context) {
+	result, err := h.service.SyncAllWorkspaces(c.Request.Context())
+	if err != nil {
+		c.JSON(500, map[string]string{"error": err.Error()})
+		return
+	}
+
+	c.JSON(200, result)
 }

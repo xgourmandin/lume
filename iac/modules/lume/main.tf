@@ -1,0 +1,233 @@
+# ── Required GCP APIs ─────────────────────────────────────────────────────────
+
+resource "google_project_service" "run" {
+  project            = var.project_id
+  service            = "run.googleapis.com"
+  disable_on_destroy = false
+}
+
+resource "google_project_service" "firestore" {
+  project            = var.project_id
+  service            = "firestore.googleapis.com"
+  disable_on_destroy = false
+}
+
+resource "google_project_service" "artifactregistry" {
+  project            = var.project_id
+  service            = "artifactregistry.googleapis.com"
+  disable_on_destroy = false
+}
+
+resource "google_project_service" "iam" {
+  project            = var.project_id
+  service            = "iam.googleapis.com"
+  disable_on_destroy = false
+}
+
+resource "google_project_service" "iap" {
+  project            = var.project_id
+  service            = "iap.googleapis.com"
+  disable_on_destroy = false
+}
+
+# ── Project data (needed for IAP service agent) ───────────────────────────────
+
+data "google_project" "project" {
+  project_id = var.project_id
+}
+
+# ── Artifact Registry ─────────────────────────────────────────────────────────
+
+resource "google_artifact_registry_repository" "lume" {
+  project       = var.project_id
+  location      = var.region
+  repository_id = "lume"
+  format        = "DOCKER"
+  description   = "Lume Docker images — ${var.environment}"
+
+  depends_on = [google_project_service.artifactregistry]
+}
+
+# ── Firestore (Native mode) ───────────────────────────────────────────────────
+# Uses the default database so the Go backend (firestore.NewClient) works
+# without any code changes. Each environment lives in its own GCP project.
+
+resource "google_firestore_database" "lume" {
+  project     = var.project_id
+  name        = "(default)"
+  location_id = var.region
+  type        = "FIRESTORE_NATIVE"
+
+  # Prevent accidental deletion of persistent data.
+  lifecycle {
+    prevent_destroy = true
+  }
+
+  depends_on = [google_project_service.firestore]
+}
+
+# ── Backend service account ───────────────────────────────────────────────────
+
+resource "google_service_account" "backend" {
+  project      = var.project_id
+  account_id   = "lume-backend-${var.environment}"
+  display_name = "Lume Backend SA (${var.environment})"
+  description  = "Identity for the lume-backend Cloud Run service."
+
+  depends_on = [google_project_service.iam]
+}
+
+# Firestore read/write
+resource "google_project_iam_member" "backend_firestore" {
+  project = var.project_id
+  role    = "roles/datastore.user"
+  member  = "serviceAccount:${google_service_account.backend.email}"
+}
+
+# Artifact Registry read (image pull at Cloud Run start-up)
+resource "google_project_iam_member" "backend_registry_reader" {
+  project = var.project_id
+  role    = "roles/artifactregistry.reader"
+  member  = "serviceAccount:${google_service_account.backend.email}"
+}
+
+# ── Frontend service account ──────────────────────────────────────────────────
+
+resource "google_service_account" "frontend" {
+  project      = var.project_id
+  account_id   = "lume-frontend-${var.environment}"
+  display_name = "Lume Frontend SA (${var.environment})"
+  description  = "Identity for the lume-frontend Cloud Run service."
+
+  depends_on = [google_project_service.iam]
+}
+
+# Artifact Registry read (image pull at Cloud Run start-up)
+resource "google_project_iam_member" "frontend_registry_reader" {
+  project = var.project_id
+  role    = "roles/artifactregistry.reader"
+  member  = "serviceAccount:${google_service_account.frontend.email}"
+}
+
+# ── Backend Cloud Run service ─────────────────────────────────────────────────
+
+resource "google_cloud_run_v2_service" "backend" {
+  project  = var.project_id
+  name     = local.backend_service_name
+  location = var.region
+
+  # Accept traffic only from within the project / VPC; Cloud Run URL is never
+  # exposed to the public internet directly.
+  ingress = "INGRESS_TRAFFIC_INTERNAL_ONLY"
+
+  template {
+    service_account = google_service_account.backend.email
+
+    scaling {
+      min_instance_count = var.backend_min_instances
+      max_instance_count = var.backend_max_instances
+    }
+
+    containers {
+      image = local.backend_image_url
+
+      ports {
+        container_port = 3000
+      }
+
+      resources {
+        limits = {
+          cpu    = var.backend_cpu
+          memory = var.backend_memory
+        }
+      }
+
+      # GCP project ID used by the Firestore and GCS clients.
+      env {
+        name  = "GCP_PROJECT_ID"
+        value = var.project_id
+      }
+
+      # GCS bucket name passed to the state-file downloader.
+      # Bucket IAM is managed outside this module.
+      env {
+        name  = "GCS_BUCKET"
+        value = var.bucket_name
+      }
+    }
+  }
+
+  depends_on = [google_project_service.run]
+}
+
+# ── Frontend Cloud Run service ────────────────────────────────────────────────
+# NEXT_PUBLIC_API_URL is set to the backend service URI returned by Cloud Run.
+# IAP is enabled natively: unauthenticated users are redirected to the Google
+# sign-in flow before any request reaches the container.
+
+resource "google_cloud_run_v2_service" "frontend" {
+  project  = var.project_id
+  name     = local.frontend_service_name
+  location = var.region
+
+  # Accept all incoming traffic — IAP is the authentication boundary.
+  ingress     = "INGRESS_TRAFFIC_ALL"
+  iap_enabled = true
+
+  template {
+    service_account = google_service_account.frontend.email
+
+    scaling {
+      min_instance_count = var.frontend_min_instances
+      max_instance_count = var.frontend_max_instances
+    }
+
+    containers {
+      image = local.frontend_image_url
+
+      ports {
+        container_port = 3000
+      }
+
+      resources {
+        limits = {
+          cpu    = var.frontend_cpu
+          memory = var.frontend_memory
+        }
+      }
+
+      env {
+        name  = "API_URL"
+        value = google_cloud_run_v2_service.backend.uri
+      }
+    }
+  }
+
+  depends_on = [
+    google_project_service.run,
+    google_project_service.iap,
+  ]
+}
+
+# ── IAP → Frontend: allow the IAP service agent to invoke the Cloud Run service ─
+
+resource "google_cloud_run_v2_service_iam_member" "frontend_iap_invoker" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_service.frontend.name
+  role     = "roles/run.invoker"
+  # IAP service agent for this project
+  member = "serviceAccount:service-${data.google_project.project.number}@gcp-sa-iap.iam.gserviceaccount.com"
+
+  depends_on = [google_project_service.iap]
+}
+
+# ── Frontend SA → Backend: only the frontend may call the backend ─────────────
+
+resource "google_cloud_run_v2_service_iam_member" "backend_frontend_invoker" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_service.backend.name
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.frontend.email}"
+}

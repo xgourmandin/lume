@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"cloud.google.com/go/firestore"
@@ -20,8 +21,12 @@ type FirestoreWorkspaceRepository struct {
 }
 
 func NewFirestoreWorkspaceRepository() (ports.WorkspaceRepository, error) {
+	projectID := os.Getenv("GCP_PROJECT_ID")
+	if projectID == "" {
+		projectID = firestore.DetectProjectID
+	}
 	ctx := context.Background()
-	client, err := firestore.NewClient(ctx, firestore.DetectProjectID)
+	client, err := firestore.NewClient(ctx, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create firestore client: %w", err)
 	}

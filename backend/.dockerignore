@@ -1,0 +1,21 @@
+# Go toolchain
+go/bin/
+go/pkg/
+
+# Test artifacts
+**/*_test.go
+tests/
+
+# Git
+.git/
+.gitignore
+
+# Editor / OS
+.idea/
+.vscode/
+*.DS_Store
+
+# Docker itself
+Dockerfile
+.dockerignore
+
