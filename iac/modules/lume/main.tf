@@ -166,9 +166,11 @@ resource "google_cloud_run_v2_service" "backend" {
 # sign-in flow before any request reaches the container.
 
 resource "google_cloud_run_v2_service" "frontend" {
-  project  = var.project_id
-  name     = local.frontend_service_name
-  location = var.region
+  provider            = google-beta
+  project      = var.project_id
+  name         = local.frontend_service_name
+  location     = var.region
+  launch_stage = "BETA"
 
   # Accept all incoming traffic — IAP is the authentication boundary.
   ingress     = "INGRESS_TRAFFIC_ALL"

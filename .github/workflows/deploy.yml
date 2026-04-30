@@ -128,7 +128,7 @@ jobs:
           tags: |
             ${{ vars.ARTIFACT_REGISTRY }}/backend:${{ env.IMAGE_TAG }}
             ${{ vars.ARTIFACT_REGISTRY }}/backend:latest
-          cache-from: type=registry,ref=user/app:latest
+          cache-from: type=registry,ref=backend:latest
           cache-to: type=inline
 
       # ── Build & push frontend ───────────────────────────────────────────────
@@ -140,7 +140,7 @@ jobs:
           tags: |
             ${{ vars.ARTIFACT_REGISTRY }}/frontend:${{ env.IMAGE_TAG }}
             ${{ vars.ARTIFACT_REGISTRY }}/frontend:latest
-          cache-from: type=registry,ref=user/app:latest
+          cache-from: type=registry,ref=frontend:latest
           cache-to: type=inline
 
   # ── 3. DEPLOY DEV ────────────────────────────────────────────────────────────

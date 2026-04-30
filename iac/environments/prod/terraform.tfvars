@@ -2,7 +2,7 @@
 # Copy this file to terraform.tfvars and fill in your actual values.
 # Do NOT commit real project IDs to source control if this repo is public.
 
-project_id            = "your-prod-project-id"
+project_id            = "p-hes-lume-prj-001"
 region                = "europe-west1"
-bucket_name           = "your-tfstate-bucket-prod"
+bucket_name           = "lume-iac-state-e6e0"
 artifact_registry_url = "europe-docker.pkg.dev/d-hes-lume-cicd-prj-001/lume"
