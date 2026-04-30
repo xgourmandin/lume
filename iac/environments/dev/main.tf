@@ -15,17 +15,6 @@ variable "bucket_name" {
   type        = string
 }
 
-variable "iap_oauth2_client_id" {
-  description = "OAuth2 client ID for the frontend Cloud Run IAP integration."
-  type        = string
-}
-
-variable "iap_oauth2_client_secret" {
-  description = "OAuth2 client secret for the frontend Cloud Run IAP integration."
-  type        = string
-  sensitive   = true
-}
-
 variable "artifact_registry_url" {
   description = <<-EOT
         Base URL of the Artifact Registry repository used to build default image references, e.g.
