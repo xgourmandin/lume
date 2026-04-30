@@ -110,6 +110,10 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
       # ── Docker: point at the Artifact Registry ─────────────────────────────
       - name: Configure Docker for Artifact Registry
         run: |
@@ -179,6 +183,10 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
       # ── Docker: point at the Artifact Registry ─────────────────────────────
       - name: Configure Docker for Artifact Registry
         run: |
@@ -193,8 +201,6 @@ jobs:
           tags: |
             ${{ vars.ARTIFACT_REGISTRY }}/backend:${{ env.IMAGE_TAG }}
             ${{ vars.ARTIFACT_REGISTRY }}/backend:latest
-          cache-from: type=gha,scope=backend
-          cache-to:   type=gha,scope=backend,mode=max
 
       # ── Re-build & push frontend ────────────────────────────────────────────
       - name: Build frontend image
@@ -205,8 +211,6 @@ jobs:
           tags: |
             ${{ vars.ARTIFACT_REGISTRY }}/frontend:${{ env.IMAGE_TAG }}
             ${{ vars.ARTIFACT_REGISTRY }}/frontend:latest
-          cache-from: type=gha,scope=frontend
-          cache-to:   type=gha,scope=frontend,mode=max
 
       # ── Terraform ───────────────────────────────────────────────────────────
       - name: Terraform Init
