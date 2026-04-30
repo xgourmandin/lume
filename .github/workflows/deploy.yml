@@ -84,15 +84,73 @@ jobs:
         working-directory: iac/environments/${{ matrix.environment }}
         run: terraform plan
 
-  # ── 2. DEPLOY DEV ────────────────────────────────────────────────────────────
-  # Runs on every push to main.
-  # Builds both Docker images, pushes them to the dev Artifact Registry,
-  # then applies Terraform in the dev environment (no approval gate).
+  # ── 2. BUILD ─────────────────────────────────────────────────────────────────
+  # Runs once on every push to main.
+  # Builds both Docker images and pushes them to Artifact Registry using the
+  # immutable git-SHA tag (and `latest`). Both deploy jobs consume these images
+  # without rebuilding, keeping the pipeline fast and the artefact identical
+  # across environments.
+  # ─────────────────────────────────────────────────────────────────────────────
+  build:
+    name: "Build & push images"
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Authenticate with GCP (WIF → CICD SA) ──────────────────────────────
+      - name: Authenticate with GCP
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account:            ${{ env.CICD_SA_EMAIL }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      # ── Docker: point at the Artifact Registry ─────────────────────────────
+      - name: Configure Docker for Artifact Registry
+        run: |
+          gcloud auth configure-docker "$(echo '${{ vars.ARTIFACT_REGISTRY }}' | cut -d/ -f1)" --quiet
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      # ── Build & push backend ────────────────────────────────────────────────
+      - name: Build backend image
+        uses: docker/build-push-action@v7
+        with:
+          context: backend
+          push: true
+          # Tag with both the immutable SHA and `latest` to keep Cloud Run happy
+          # when no explicit image override is supplied to the module.
+          tags: |
+            ${{ vars.ARTIFACT_REGISTRY }}/backend:${{ env.IMAGE_TAG }}
+            ${{ vars.ARTIFACT_REGISTRY }}/backend:latest
+          cache-from: type=registry,ref=user/app:latest
+          cache-to: type=inline
+
+      # ── Build & push frontend ───────────────────────────────────────────────
+      - name: Build frontend image
+        uses: docker/build-push-action@v7
+        with:
+          context: frontend
+          push: true
+          tags: |
+            ${{ vars.ARTIFACT_REGISTRY }}/frontend:${{ env.IMAGE_TAG }}
+            ${{ vars.ARTIFACT_REGISTRY }}/frontend:latest
+          cache-from: type=registry,ref=user/app:latest
+          cache-to: type=inline
+
+  # ── 3. DEPLOY DEV ────────────────────────────────────────────────────────────
+  # Runs after a successful build.
+  # Applies Terraform in the dev environment (no approval gate).
   # ─────────────────────────────────────────────────────────────────────────────
   deploy-dev:
     name: "Deploy → dev"
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
 
     # No protection rule on the `dev` GitHub Environment → auto-deploy.
     environment: dev
@@ -114,48 +172,20 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      # ── Docker: point at the Artifact Registry ─────────────────────────────
-      - name: Configure Docker for Artifact Registry
-        run: |
-          gcloud auth configure-docker "$(echo '${{ vars.ARTIFACT_REGISTRY }}' | cut -d/ -f1)" --quiet
-
-      # ── Build & push backend ────────────────────────────────────────────────
-      - name: Build backend image
-        uses: docker/build-push-action@v6
-        with:
-          context: backend
-          push: true
-          # Tag with both the immutable SHA and `latest` to keep Cloud Run happy
-          # when no explicit image override is supplied to the module.
-          tags: |
-            ${{ vars.ARTIFACT_REGISTRY }}/backend:${{ env.IMAGE_TAG }}
-            ${{ vars.ARTIFACT_REGISTRY }}/backend:latest
-
-      # ── Build & push frontend ───────────────────────────────────────────────
-      - name: Build frontend image
-        uses: docker/build-push-action@v6
-        with:
-          context: frontend
-          push: true
-          tags: |
-            ${{ vars.ARTIFACT_REGISTRY }}/frontend:${{ env.IMAGE_TAG }}
-            ${{ vars.ARTIFACT_REGISTRY }}/frontend:latest
-
       # ── Terraform ───────────────────────────────────────────────────────────
       - name: Terraform Init
         working-directory: iac/environments/dev
         run: |
           terraform init \
-            -backend-config="bucket=${{ env.IAC_STATE_BUCKET }}" 
+            -backend-config="bucket=${{ env.IAC_STATE_BUCKET }}"
 
       - name: Terraform Apply
         working-directory: iac/environments/dev
         run: terraform apply -auto-approve
 
-  # ── 3. DEPLOY PROD ───────────────────────────────────────────────────────────
+  # ── 4. DEPLOY PROD ───────────────────────────────────────────────────────────
   # Runs after a successful dev deploy.
-  # Pushes the same git-SHA-tagged images to the prod Artifact Registry
-  # (Docker layer cache avoids a full rebuild), then applies Terraform.
+  # Reuses the images already pushed by the `build` job — no rebuild needed.
   #
   # The `prod` GitHub Environment should be configured with:
   #   - Required reviewers (≥ 1) for a manual approval gate
@@ -187,30 +217,6 @@ jobs:
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      # ── Docker: point at the Artifact Registry ─────────────────────────────
-      - name: Configure Docker for Artifact Registry
-        run: |
-          gcloud auth configure-docker "$(echo '${{ vars.ARTIFACT_REGISTRY }}' | cut -d/ -f1)" --quiet
-
-      # ── Re-build & push backend (layer cache makes this near-instant) ───────
-      - name: Build backend image
-        uses: docker/build-push-action@v6
-        with:
-          context: backend
-          push: true
-          tags: |
-            ${{ vars.ARTIFACT_REGISTRY }}/backend:${{ env.IMAGE_TAG }}
-            ${{ vars.ARTIFACT_REGISTRY }}/backend:latest
-
-      # ── Re-build & push frontend ────────────────────────────────────────────
-      - name: Build frontend image
-        uses: docker/build-push-action@v6
-        with:
-          context: frontend
-          push: true
-          tags: |
-            ${{ vars.ARTIFACT_REGISTRY }}/frontend:${{ env.IMAGE_TAG }}
-            ${{ vars.ARTIFACT_REGISTRY }}/frontend:latest
 
       # ── Terraform ───────────────────────────────────────────────────────────
       - name: Terraform Init
