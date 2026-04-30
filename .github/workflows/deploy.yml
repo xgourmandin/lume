@@ -165,9 +165,6 @@ jobs:
           workload_identity_provider: ${{ env.WIF_PROVIDER }}
           service_account:            ${{ env.CICD_SA_EMAIL }}
 
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
-
       - uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
@@ -209,9 +206,6 @@ jobs:
         with:
           workload_identity_provider: ${{ env.WIF_PROVIDER }}
           service_account:            ${{ env.CICD_SA_EMAIL }}
-
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
 
       - uses: hashicorp/setup-terraform@v3
         with:
