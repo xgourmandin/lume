@@ -126,9 +126,10 @@ resource "google_project_iam_member" "frontend_registry_reader" {
 # ── Backend Cloud Run service ─────────────────────────────────────────────────
 
 resource "google_cloud_run_v2_service" "backend" {
-  project  = var.project_id
-  name     = local.backend_service_name
-  location = var.region
+  project             = var.project_id
+  name                = local.backend_service_name
+  location            = var.region
+  deletion_protection = false
 
   # Accept traffic only from within the project / VPC; Cloud Run URL is never
   # exposed to the public internet directly.
@@ -181,10 +182,11 @@ resource "google_cloud_run_v2_service" "backend" {
 
 resource "google_cloud_run_v2_service" "frontend" {
   provider            = google-beta
-  project      = var.project_id
-  name         = local.frontend_service_name
-  location     = var.region
-  launch_stage = "BETA"
+  project             = var.project_id
+  name                = local.frontend_service_name
+  location            = var.region
+  deletion_protection = false
+  launch_stage        = "BETA"
 
   # Accept all incoming traffic — IAP is the authentication boundary.
   ingress     = "INGRESS_TRAFFIC_ALL"
