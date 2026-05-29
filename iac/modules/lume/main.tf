@@ -162,7 +162,7 @@ resource "google_cloud_run_v2_service" "backend" {
     }
   }
 
-  depends_on = [google_project_service.run]
+  depends_on = [google_project_service.run, google_artifact_registry_repository_iam_member.main]
 }
 
 # ── Frontend Cloud Run service ────────────────────────────────────────────────
@@ -214,6 +214,7 @@ resource "google_cloud_run_v2_service" "frontend" {
   depends_on = [
     google_project_service.run,
     google_project_service.iap,
+    google_artifact_registry_repository_iam_member.main
   ]
 }
 
