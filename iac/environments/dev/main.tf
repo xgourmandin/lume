@@ -64,11 +64,6 @@ output "frontend_url" {
   value       = module.lume.frontend_url
 }
 
-output "artifact_registry_url" {
-  description = "Artifact Registry base URL for pushing images."
-  value       = module.lume.artifact_registry_url
-}
-
 output "backend_service_account_email" {
   description = "Backend service account email."
   value       = module.lume.backend_service_account_email

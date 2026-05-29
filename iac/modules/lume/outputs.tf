@@ -8,16 +8,6 @@ output "frontend_url" {
   value       = google_cloud_run_v2_service.frontend.uri
 }
 
-output "artifact_registry_url" {
-  description = <<-EOT
-    Base URL of the Artifact Registry Docker repository.
-    Use this prefix when tagging and pushing images, e.g.:
-      docker tag lume-backend <artifact_registry_url>/backend:1.0.0
-      docker push <artifact_registry_url>/backend:1.0.0
-  EOT
-  value       = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.lume.repository_id}"
-}
-
 output "backend_image_url" {
   description = "Full Docker image URL configured for the backend Cloud Run service."
   value       = local.backend_image_url

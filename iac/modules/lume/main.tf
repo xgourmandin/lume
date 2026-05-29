@@ -42,7 +42,7 @@ data "google_project" "project" {
 
 data "google_artifact_registry_repository" "lume" {
   project       = "d-hes-lume-cicd-prj-001"
-  location      = var.region
+  location      = "europe"
   repository_id = "lume"
 }
 
