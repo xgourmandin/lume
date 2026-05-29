@@ -174,7 +174,8 @@ jobs:
         working-directory: iac/environments/dev
         run: |
           terraform init \
-            -backend-config="bucket=${{ env.IAC_STATE_BUCKET }}"
+            -backend-config="bucket=${{ env.IAC_STATE_BUCKET }}" \
+            --upgrade
 
       - name: Terraform Apply
         working-directory: iac/environments/dev
