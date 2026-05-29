@@ -20,12 +20,6 @@ resource "google_project_service" "firestore" {
   disable_on_destroy = false
 }
 
-resource "google_project_service" "artifactregistry" {
-  project            = var.project_id
-  service            = "artifactregistry.googleapis.com"
-  disable_on_destroy = false
-}
-
 resource "google_project_service" "iam" {
   project            = var.project_id
   service            = "iam.googleapis.com"
@@ -46,19 +40,15 @@ data "google_project" "project" {
 
 # ── Artifact Registry ─────────────────────────────────────────────────────────
 
-resource "google_artifact_registry_repository" "lume" {
-  project       = var.project_id
+data "google_artifact_registry_repository" "lume" {
+  project       = "d-hes-lume-cicd-prj-001"
   location      = var.region
   repository_id = "lume"
-  format        = "DOCKER"
-  description   = "Lume Docker images — ${var.environment}"
-
-  depends_on = [google_project_service.artifactregistry]
 }
 
 resource "google_artifact_registry_repository_iam_member" "main" {
   member     = "serviceAccount:service-${data.google_project.project.number}@serverless-robot-prod.iam.gserviceaccount.com"
-  repository = google_artifact_registry_repository.lume.name
+  repository = data.google_artifact_registry_repository.lume.name
   role       = "roles/artifactregistry.reader"
 }
 
