@@ -1,3 +1,11 @@
+terraform {
+  required_providers {
+    google = {
+      source  = "hashicorp/google"
+      version = "7.23.0"
+    }
+  }
+}
 # ── Required GCP APIs ─────────────────────────────────────────────────────────
 
 resource "google_project_service" "run" {
@@ -46,6 +54,12 @@ resource "google_artifact_registry_repository" "lume" {
   description   = "Lume Docker images — ${var.environment}"
 
   depends_on = [google_project_service.artifactregistry]
+}
+
+resource "google_artifact_registry_repository_iam_member" "main" {
+  member     = "serviceAccount:service-${data.google_project.project.number}@serverless-robot-prod.iam.gserviceaccount.com"
+  repository = google_artifact_registry_repository.lume.name
+  role       = "roles/artifactregistry.reader"
 }
 
 # ── Firestore (Native mode) ───────────────────────────────────────────────────
