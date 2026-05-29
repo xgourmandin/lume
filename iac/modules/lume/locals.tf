@@ -10,6 +10,13 @@ locals {
   # from region + project_id (the repository created by this module).
   registry_base = var.artifact_registry_url != null ? var.artifact_registry_url : "${var.region}-docker.pkg.dev/${var.project_id}/lume"
 
+  # Parse project, location, and repository ID from the registry base URL.
+  # URL format: <location>-docker.pkg.dev/<project_id>/<repository_id>
+  _registry_parts            = split("/", local.registry_base)
+  artifact_registry_location = split("-docker.pkg.dev", local._registry_parts[0])[0]
+  artifact_registry_project  = local._registry_parts[1]
+  artifact_registry_repo     = local._registry_parts[2]
+
   # ── Image resolution ───────────────────────────────────────────────────────
   # Use the caller-supplied image if provided; otherwise fall back to the
   # resolved registry base (tag: latest).

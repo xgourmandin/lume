@@ -41,13 +41,15 @@ data "google_project" "project" {
 # ── Artifact Registry ─────────────────────────────────────────────────────────
 
 data "google_artifact_registry_repository" "lume" {
-  project       = "d-hes-lume-cicd-prj-001"
-  location      = "europe"
-  repository_id = "lume"
+  project       = local.artifact_registry_project
+  location      = local.artifact_registry_location
+  repository_id = local.artifact_registry_repo
 }
 
 resource "google_artifact_registry_repository_iam_member" "main" {
   member     = "serviceAccount:service-${data.google_project.project.number}@serverless-robot-prod.iam.gserviceaccount.com"
+  project    = data.google_artifact_registry_repository.lume.project
+  location   = data.google_artifact_registry_repository.lume.location
   repository = data.google_artifact_registry_repository.lume.name
   role       = "roles/artifactregistry.reader"
 }
