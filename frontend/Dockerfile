@@ -35,12 +35,12 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN addgroup --system --gid 1001 nodejs && \
     adduser  --system --uid 1001 nextjs
 
-# Static assets served directly by Next.js
-COPY --from=builder /app/public ./.next/standalone/public
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/standalone/.next/static
-
 # Standalone server bundle (includes a minimal node_modules)
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+
+# Static assets must live at these paths relative to the server working dir
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 
 USER nextjs
 
