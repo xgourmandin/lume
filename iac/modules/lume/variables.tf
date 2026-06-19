@@ -23,6 +23,12 @@ variable "bucket_name" {
   type        = string
 }
 
+variable "frontend_egress_subnet_cidr" {
+  description = "CIDR range for the subnet backing the frontend's Direct VPC egress to the internal-only backend. Must not overlap other subnets in the VPC; a /26 is sufficient."
+  type        = string
+  default     = "10.8.0.0/26"
+}
+
 variable "artifact_registry_url" {
   description = <<-EOT
     Base URL of the Artifact Registry repository used to build default image references, e.g.

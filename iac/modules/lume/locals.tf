@@ -5,6 +5,12 @@ locals {
   backend_service_name  = "lume-backend"
   frontend_service_name = "lume-frontend"
 
+  # ── Networking ──────────────────────────────────────────────────────────────
+  # VPC + subnet backing the frontend's Direct VPC egress to the internal-only
+  # backend.
+  network_name                = "lume-network"
+  frontend_egress_subnet_name = "lume-frontend-egress"
+
   # ── Artifact Registry ──────────────────────────────────────────────────────
   # Use caller-supplied registry URL if provided; otherwise build the default
   # from region + project_id (the repository created by this module).

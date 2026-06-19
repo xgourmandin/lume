@@ -32,6 +32,12 @@ resource "google_project_service" "iap" {
   disable_on_destroy = false
 }
 
+resource "google_project_service" "compute" {
+  project            = var.project_id
+  service            = "compute.googleapis.com"
+  disable_on_destroy = false
+}
+
 # ── Project data (needed for IAP service agent) ───────────────────────────────
 
 data "google_project" "project" {
@@ -185,6 +191,28 @@ resource "google_cloud_run_v2_service" "backend" {
   depends_on = [google_project_service.run, google_artifact_registry_repository_iam_member.main]
 }
 
+# ── VPC for frontend → backend Direct VPC egress ──────────────────────────────
+# The backend uses INGRESS_TRAFFIC_INTERNAL_ONLY, so the frontend's outbound
+# call must travel over a VPC (rather than the public internet) to be treated as
+# internal traffic. Direct VPC egress attaches the frontend instances to this
+# subnet; egress = "ALL_TRAFFIC" routes the backend *.run.app request through it.
+
+resource "google_compute_network" "main" {
+  project                 = var.project_id
+  name                    = local.network_name
+  auto_create_subnetworks = false
+
+  depends_on = [google_project_service.compute]
+}
+
+resource "google_compute_subnetwork" "frontend_egress" {
+  project       = var.project_id
+  name          = local.frontend_egress_subnet_name
+  region        = var.region
+  network       = google_compute_network.main.id
+  ip_cidr_range = var.frontend_egress_subnet_cidr
+}
+
 # ── Frontend Cloud Run service ────────────────────────────────────────────────
 # NEXT_PUBLIC_API_URL is set to the backend service URI returned by Cloud Run.
 # IAP is enabled natively: unauthenticated users are redirected to the Google
@@ -208,6 +236,16 @@ resource "google_cloud_run_v2_service" "frontend" {
     scaling {
       min_instance_count = var.frontend_min_instances
       max_instance_count = var.frontend_max_instances
+    }
+
+    # Direct VPC egress: route all outbound traffic through the VPC so requests
+    # to the internal-only backend are treated as internal.
+    vpc_access {
+      network_interfaces {
+        network    = google_compute_network.main.id
+        subnetwork = google_compute_subnetwork.frontend_egress.id
+      }
+      egress = "ALL_TRAFFIC"
     }
 
     containers {
@@ -234,6 +272,7 @@ resource "google_cloud_run_v2_service" "frontend" {
   depends_on = [
     google_project_service.run,
     google_project_service.iap,
+    google_compute_subnetwork.frontend_egress,
     google_artifact_registry_repository_iam_member.main
   ]
 }
