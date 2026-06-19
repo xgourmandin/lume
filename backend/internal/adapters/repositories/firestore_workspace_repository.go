@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"cloud.google.com/go/firestore"
@@ -16,6 +17,17 @@ import (
 //
 //	layers/{layerID--tfWorkspaceID}        → hierarchy snapshot per (layer, tf-workspace)
 //	drift_results/{layerID--tfWorkspaceID} → latest drift report per (layer, tf-workspace)
+
+// docID builds a Firestore-safe document ID for a (layerID, tfWorkspaceID) pair.
+//
+// The layerID is derived from the GCS object's directory and so can contain
+// slashes (e.g. "tf/bootstrap"). Firestore document IDs may not contain "/" —
+// it is the collection/document path separator — so any slash is replaced with
+// an underscore. The "--" delimiter keeps the two components unambiguous.
+func docID(layerID, tfWorkspaceID string) string {
+	clean := func(s string) string { return strings.ReplaceAll(s, "/", "_") }
+	return clean(layerID) + "--" + clean(tfWorkspaceID)
+}
 
 type FirestoreWorkspaceRepository struct {
 	client *firestore.Client
@@ -38,17 +50,17 @@ func NewFirestoreWorkspaceRepository(logger *slog.Logger) (ports.WorkspaceReposi
 // SaveLayer persists the parsed Organization for a single (layerID, tfWorkspaceID) pair.
 // The document is keyed as "{layerID}--{tfWorkspaceID}".
 func (r *FirestoreWorkspaceRepository) SaveLayer(ctx context.Context, layerID, tfWorkspaceID string, org *domain.Organization) error {
-	docID := layerID + "--" + tfWorkspaceID
-	_, err := r.client.Collection("layers").Doc(docID).Set(ctx, map[string]interface{}{
+	id := docID(layerID, tfWorkspaceID)
+	_, err := r.client.Collection("layers").Doc(id).Set(ctx, map[string]interface{}{
 		"layer_id":     layerID,
 		"tf_workspace": tfWorkspaceID,
 		"last_sync":    time.Now(),
 		"hierarchy":    org,
 	})
 	if err != nil {
-		return fmt.Errorf("save layer doc %q: %w", docID, err)
+		return fmt.Errorf("save layer doc %q: %w", id, err)
 	}
-	r.logger.DebugContext(ctx, "saved layer", "doc_id", docID)
+	r.logger.DebugContext(ctx, "saved layer", "doc_id", id)
 	return nil
 }
 
@@ -63,7 +75,7 @@ func (r *FirestoreWorkspaceRepository) GetMergedHierarchy(ctx context.Context) (
 		return nil, fmt.Errorf("no layers found")
 	}
 
-	var merged *domain.Organization
+	fragments := make([]*domain.Organization, 0, len(docs))
 	for _, doc := range docs {
 		var data struct {
 			Hierarchy *domain.Organization `firestore:"hierarchy"`
@@ -75,24 +87,21 @@ func (r *FirestoreWorkspaceRepository) GetMergedHierarchy(ctx context.Context) (
 			r.logger.WarnContext(ctx, "layer has no hierarchy payload; skipping", "doc_id", doc.Ref.ID)
 			continue
 		}
-		if merged == nil {
-			merged = data.Hierarchy
-		} else {
-			merged.Merge(data.Hierarchy)
-		}
+		fragments = append(fragments, data.Hierarchy)
 	}
 
-	if merged == nil {
+	if len(fragments) == 0 {
 		return nil, fmt.Errorf("no valid hierarchy found in layers")
 	}
-	r.logger.DebugContext(ctx, "merged hierarchy", "layer_count", len(docs))
+
+	merged := domain.MergeFragments(fragments)
+	r.logger.DebugContext(ctx, "merged hierarchy", "layer_count", len(fragments))
 	return merged, nil
 }
 
 // SaveDriftResult persists a DriftResult for a single (layerID, tfWorkspaceID) pair.
 func (r *FirestoreWorkspaceRepository) SaveDriftResult(ctx context.Context, layerID, tfWorkspaceID string, result *domain.DriftResult) error {
-	docID := layerID + "--" + tfWorkspaceID
-	_, err := r.client.Collection("drift_results").Doc(docID).Set(ctx, map[string]interface{}{
+	_, err := r.client.Collection("drift_results").Doc(docID(layerID, tfWorkspaceID)).Set(ctx, map[string]interface{}{
 		"layer_id":      layerID,
 		"tf_workspace":  tfWorkspaceID,
 		"status":        result.Status,
@@ -110,8 +119,7 @@ func (r *FirestoreWorkspaceRepository) SaveDriftResult(ctx context.Context, laye
 
 // GetDriftResult fetches the latest drift scan result for a (layerID, tfWorkspaceID) pair.
 func (r *FirestoreWorkspaceRepository) GetDriftResult(ctx context.Context, layerID, tfWorkspaceID string) (*domain.DriftResult, error) {
-	docID := layerID + "--" + tfWorkspaceID
-	doc, err := r.client.Collection("drift_results").Doc(docID).Get(ctx)
+	doc, err := r.client.Collection("drift_results").Doc(docID(layerID, tfWorkspaceID)).Get(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("drift result not found for %s/%s: %w", layerID, tfWorkspaceID, err)
 	}

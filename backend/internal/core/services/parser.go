@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/lume/backend/internal/core/domain"
@@ -38,9 +39,16 @@ type tfResource struct {
 	} `json:"instances"`
 }
 
-// Parse converts raw Terraform state JSON into a GCP hierarchy tree.
-// Every node is stamped with both layerID and tfWorkspaceID so the UI can
-// filter and show workspace-level provenance without additional round-trips.
+// Parse converts raw Terraform state JSON into a GCP hierarchy fragment.
+//
+// A single .tfstate rarely contains the whole chain from the organization down:
+// the hierarchy layer owns folders, while product/env layers own projects
+// parented to folders that live in another layer. Parse therefore returns a
+// *flat* fragment — every folder and project found in this state, each stamped
+// with its layerID and tfWorkspaceID and carrying its Parent pointer. Nesting
+// (and any organization root) is reconstructed across all layers later by
+// domain.MergeFragments. A state with no organization-rooted node is a valid
+// fragment, not an error.
 func (p *TofuParser) Parse(_ context.Context, stateData []byte, layerID, tfWorkspaceID string) (*domain.Organization, error) {
 	var state tfState
 	if err := json.Unmarshal(stateData, &state); err != nil {
@@ -49,7 +57,6 @@ func (p *TofuParser) Parse(_ context.Context, stateData []byte, layerID, tfWorks
 
 	folders := make(map[string]*domain.Folder)
 	projects := make(map[string]*domain.Project)
-	orgs := make(map[string]*domain.Organization)
 
 	// First pass: collect all folders and projects
 	for _, res := range state.Resources {
@@ -113,22 +120,19 @@ func (p *TofuParser) Parse(_ context.Context, stateData []byte, layerID, tfWorks
 		// resources without a matching project are silently dropped.
 	}
 
-	// Third pass: Reconstruct the hierarchy
+	// Emit a flat fragment in deterministic order. Cross-layer nesting and the
+	// organization root are reconstructed by domain.MergeFragments at read time.
+	fragment := &domain.Organization{}
 	for _, folder := range folders {
-		p.addToHierarchy(folder.Parent, folder, folders, orgs)
+		fragment.Folders = append(fragment.Folders, folder)
 	}
 	for _, project := range projects {
-		p.addToHierarchy(project.Parent, project, folders, orgs)
+		fragment.Projects = append(fragment.Projects, project)
 	}
+	sort.Slice(fragment.Folders, func(i, j int) bool { return fragment.Folders[i].ID < fragment.Folders[j].ID })
+	sort.Slice(fragment.Projects, func(i, j int) bool { return fragment.Projects[i].ProjectID < fragment.Projects[j].ProjectID })
 
-	if len(orgs) == 0 {
-		return nil, fmt.Errorf("no organization found in state")
-	}
-	for _, org := range orgs {
-		return org, nil
-	}
-
-	return nil, nil
+	return fragment, nil
 }
 
 // extractProjectKey returns the project_id part from a resource ID like
@@ -142,43 +146,4 @@ func extractProjectKey(resourceID string) string {
 		return rest[:idx]
 	}
 	return rest
-}
-
-func (p *TofuParser) addToHierarchy(parent string, child interface{}, folders map[string]*domain.Folder, orgs map[string]*domain.Organization) {
-	if parent == "" {
-		return
-	}
-
-	parts := strings.Split(parent, "/")
-	if len(parts) < 2 {
-		return
-	}
-	parentType := parts[0]
-	parentID := parts[1]
-
-	// Reconstruct the full parent path for map lookup (e.g. "folders/910383262608")
-	fullParent := parentType + "/" + parentID
-
-	switch parentType {
-	case "organizations":
-		org, ok := orgs[fullParent]
-		if !ok {
-			org = &domain.Organization{ID: parentID, DisplayName: "Organization " + parentID}
-			orgs[fullParent] = org
-		}
-		if f, ok := child.(*domain.Folder); ok {
-			org.Folders = append(org.Folders, f)
-		} else if pr, ok := child.(*domain.Project); ok {
-			org.Projects = append(org.Projects, pr)
-		}
-	case "folders":
-		folder, ok := folders[fullParent]
-		if ok {
-			if f, ok := child.(*domain.Folder); ok {
-				folder.Folders = append(folder.Folders, f)
-			} else if pr, ok := child.(*domain.Project); ok {
-				folder.Projects = append(folder.Projects, pr)
-			}
-		}
-	}
 }
