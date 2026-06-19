@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-
-const BACKEND_URL = process.env.API_URL?.replace(/\/$/, '') ?? 'http://localhost:3000';
+import { BACKEND_URL, backendAuthHeaders } from '@/lib/backend';
 
 export async function GET(
   _request: NextRequest,
@@ -10,7 +9,7 @@ export async function GET(
     const { layerId, tfWorkspaceId } = await params;
     const res = await fetch(
       `${BACKEND_URL}/api/v1/drift/${encodeURIComponent(layerId)}/${encodeURIComponent(tfWorkspaceId)}`,
-      { cache: 'no-store' },
+      { cache: 'no-store', headers: await backendAuthHeaders() },
     );
     const data = await res.json();
     return NextResponse.json(data, { status: res.status });

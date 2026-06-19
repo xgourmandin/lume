@@ -1,11 +1,10 @@
 import { NextResponse } from 'next/server';
-
-const BACKEND_URL = process.env.API_URL?.replace(/\/$/, '') ?? 'http://localhost:3000';
+import { BACKEND_URL, backendAuthHeaders } from '@/lib/backend';
 
 export async function GET() {
   try {
     const res = await fetch(`${BACKEND_URL}/api/v1/hierarchy`, {
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...(await backendAuthHeaders()) },
       cache: 'no-store',
     });
     const data = await res.json();
