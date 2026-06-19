@@ -211,6 +211,12 @@ resource "google_compute_subnetwork" "frontend_egress" {
   region        = var.region
   network       = google_compute_network.main.id
   ip_cidr_range = var.frontend_egress_subnet_cidr
+
+  # Required so the frontend (no external IP on the VPC-egress path) can reach
+  # Google services — including the backend's *.run.app front end — over
+  # Google's internal network. Without this the TCP connection is dropped and
+  # the proxy fails with "fetch failed".
+  private_ip_google_access = true
 }
 
 # ── Frontend Cloud Run service ────────────────────────────────────────────────
