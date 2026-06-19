@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
-	"log"
+	"log/slog"
+	"os"
 
 	"github.com/lume/backend/internal/adapters/http"
 	"github.com/lume/backend/internal/adapters/repositories"
 	"github.com/lume/backend/internal/core/services"
+	"github.com/lume/backend/internal/platform/logging"
 	"github.com/mrshabel/mach"
 	"go.uber.org/fx"
 )
@@ -33,19 +35,20 @@ func NewServer(webhookHandler *http.WebhookHandler, workspaceHandler *http.Works
 }
 
 // StartServer hook to manage the server lifecycle via FX.
-func StartServer(lc fx.Lifecycle, app *mach.App) {
+func StartServer(lc fx.Lifecycle, app *mach.App, logger *slog.Logger) {
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
-			log.Println("Starting Lume API on :3000")
+			logger.Info("starting Lume API", "addr", ":3000")
 			go func() {
 				if err := app.Run(":3000"); err != nil {
-					log.Fatalf("Server failed to start: %v", err)
+					logger.Error("server failed to start", "error", err)
+					os.Exit(1)
 				}
 			}()
 			return nil
 		},
 		OnStop: func(ctx context.Context) error {
-			log.Println("Stopping Lume API...")
+			logger.Info("stopping Lume API")
 			return nil
 		},
 	})
@@ -54,6 +57,9 @@ func StartServer(lc fx.Lifecycle, app *mach.App) {
 func main() {
 	app := fx.New(
 		fx.Provide(
+			// Platform
+			logging.NewLogger,
+
 			// Adapters
 			repositories.NewGCSDownloader,
 			repositories.NewFirestoreWorkspaceRepository,

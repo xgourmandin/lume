@@ -2,6 +2,7 @@ package http
 
 import (
 	"io"
+	"log/slog"
 
 	"github.com/lume/backend/internal/core/ports"
 	"github.com/mrshabel/mach"
@@ -11,10 +12,11 @@ type WorkspaceHandler struct {
 	repo       ports.WorkspaceRepository
 	service    ports.TofuService
 	planParser ports.PlanParser
+	logger     *slog.Logger
 }
 
-func NewWorkspaceHandler(repo ports.WorkspaceRepository, service ports.TofuService, planParser ports.PlanParser) *WorkspaceHandler {
-	return &WorkspaceHandler{repo: repo, service: service, planParser: planParser}
+func NewWorkspaceHandler(repo ports.WorkspaceRepository, service ports.TofuService, planParser ports.PlanParser, logger *slog.Logger) *WorkspaceHandler {
+	return &WorkspaceHandler{repo: repo, service: service, planParser: planParser, logger: logger.With("component", "workspace_handler")}
 }
 
 func (h *WorkspaceHandler) Register(app *mach.App) {
@@ -29,6 +31,7 @@ func (h *WorkspaceHandler) Register(app *mach.App) {
 func (h *WorkspaceHandler) GetHierarchy(c *mach.Context) {
 	hierarchy, err := h.repo.GetMergedHierarchy(c.Request.Context())
 	if err != nil {
+		h.logger.WarnContext(c.Request.Context(), "get hierarchy failed", "route", "GET /api/v1/hierarchy", "status", 404, "error", err)
 		c.JSON(404, map[string]string{"error": "hierarchy not found"})
 		return
 	}
@@ -43,6 +46,8 @@ func (h *WorkspaceHandler) GetDriftResult(c *mach.Context) {
 
 	result, err := h.repo.GetDriftResult(c.Request.Context(), layerID, tfWorkspace)
 	if err != nil {
+		h.logger.WarnContext(c.Request.Context(), "get drift result failed",
+			"route", "GET /api/v1/drift", "status", 404, "layer_id", layerID, "tf_workspace", tfWorkspace, "error", err)
 		c.JSON(404, map[string]string{"error": "drift result not found"})
 		return
 	}
@@ -57,17 +62,21 @@ func (h *WorkspaceHandler) GetDriftResult(c *mach.Context) {
 //
 // Corresponds to POST /api/v1/drift/{layerId}/{tfWorkspace}
 func (h *WorkspaceHandler) ReportDrift(c *mach.Context) {
+	ctx := c.Request.Context()
 	layerID := c.Param("layerId")
 	tfWorkspace := c.Param("tfWorkspace")
+	log := h.logger.With("route", "POST /api/v1/drift", "layer_id", layerID, "tf_workspace", tfWorkspace)
 
 	// Parse up to 32 MB of multipart data.
 	if err := c.Request.ParseMultipartForm(32 << 20); err != nil {
+		log.WarnContext(ctx, "invalid multipart form", "status", 400, "error", err)
 		c.JSON(400, map[string]string{"error": "expected multipart/form-data request"})
 		return
 	}
 
 	file, _, err := c.Request.FormFile("plan")
 	if err != nil {
+		log.WarnContext(ctx, "missing 'plan' file field", "status", 400, "error", err)
 		c.JSON(400, map[string]string{"error": "missing 'plan' file field"})
 		return
 	}
@@ -75,21 +84,26 @@ func (h *WorkspaceHandler) ReportDrift(c *mach.Context) {
 
 	planData, err := io.ReadAll(file)
 	if err != nil {
+		log.ErrorContext(ctx, "failed to read plan file", "status", 500, "error", err)
 		c.JSON(500, map[string]string{"error": "failed to read plan file"})
 		return
 	}
 
-	result, err := h.planParser.ParseDrift(c.Request.Context(), planData)
+	result, err := h.planParser.ParseDrift(ctx, planData)
 	if err != nil {
+		log.WarnContext(ctx, "failed to parse drift plan", "status", 400, "plan_bytes", len(planData), "error", err)
 		c.JSON(400, map[string]string{"error": err.Error()})
 		return
 	}
 
-	if err := h.repo.SaveDriftResult(c.Request.Context(), layerID, tfWorkspace, result); err != nil {
+	if err := h.repo.SaveDriftResult(ctx, layerID, tfWorkspace, result); err != nil {
+		log.ErrorContext(ctx, "failed to save drift result", "status", 500, "error", err)
 		c.JSON(500, map[string]string{"error": err.Error()})
 		return
 	}
 
+	log.InfoContext(ctx, "drift reported", "status", result.Status,
+		"add", result.AddCount, "change", result.ChangeCount, "destroy", result.DestroyCount)
 	c.JSON(200, result)
 }
 
@@ -112,7 +126,9 @@ func (h *WorkspaceHandler) SyncHierarchy(c *mach.Context) {
 		Object        string `json:"object"`
 	}
 
+	ctx := c.Request.Context()
 	if err := c.DecodeJSON(&body); err != nil {
+		h.logger.WarnContext(ctx, "invalid sync request body", "route", "POST /api/v1/hierarchy/sync", "status", 400, "error", err)
 		c.JSON(400, map[string]string{"error": "invalid request body"})
 		return
 	}
@@ -125,13 +141,15 @@ func (h *WorkspaceHandler) SyncHierarchy(c *mach.Context) {
 	}
 
 	org, err := h.service.SyncWorkspace(
-		c.Request.Context(),
+		ctx,
 		body.LayerID,
 		body.TFWorkspaceID,
 		body.Bucket,
 		body.Object,
 	)
 	if err != nil {
+		h.logger.ErrorContext(ctx, "sync request failed", "route", "POST /api/v1/hierarchy/sync", "status", 500,
+			"layer_id", body.LayerID, "tf_workspace", body.TFWorkspaceID, "bucket", body.Bucket, "object", body.Object, "error", err)
 		c.JSON(500, map[string]string{"error": err.Error()})
 		return
 	}
@@ -155,10 +173,18 @@ func (h *WorkspaceHandler) SyncHierarchy(c *mach.Context) {
 //	  "hierarchy": { ... }
 //	}
 func (h *WorkspaceHandler) SyncAllHierarchy(c *mach.Context) {
-	result, err := h.service.SyncAllWorkspaces(c.Request.Context())
+	ctx := c.Request.Context()
+	result, err := h.service.SyncAllWorkspaces(ctx)
 	if err != nil {
+		h.logger.ErrorContext(ctx, "sync-all request failed", "route", "POST /api/v1/hierarchy/sync-all", "status", 500, "error", err)
 		c.JSON(500, map[string]string{"error": err.Error()})
 		return
+	}
+
+	// Even on overall success, individual objects may have failed to sync.
+	if result.Failed > 0 {
+		h.logger.WarnContext(ctx, "sync-all completed with per-object failures",
+			"synced", result.Synced, "failed", result.Failed, "errors", result.Errors)
 	}
 
 	c.JSON(200, result)

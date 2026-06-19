@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"time"
 
@@ -18,9 +19,10 @@ import (
 
 type FirestoreWorkspaceRepository struct {
 	client *firestore.Client
+	logger *slog.Logger
 }
 
-func NewFirestoreWorkspaceRepository() (ports.WorkspaceRepository, error) {
+func NewFirestoreWorkspaceRepository(logger *slog.Logger) (ports.WorkspaceRepository, error) {
 	projectID := os.Getenv("GCP_PROJECT_ID")
 	if projectID == "" {
 		projectID = firestore.DetectProjectID
@@ -30,7 +32,7 @@ func NewFirestoreWorkspaceRepository() (ports.WorkspaceRepository, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create firestore client: %w", err)
 	}
-	return &FirestoreWorkspaceRepository{client: client}, nil
+	return &FirestoreWorkspaceRepository{client: client, logger: logger.With("component", "firestore_repo")}, nil
 }
 
 // SaveLayer persists the parsed Organization for a single (layerID, tfWorkspaceID) pair.
@@ -43,7 +45,12 @@ func (r *FirestoreWorkspaceRepository) SaveLayer(ctx context.Context, layerID, t
 		"last_sync":    time.Now(),
 		"hierarchy":    org,
 	})
-	return err
+	if err != nil {
+		r.logger.ErrorContext(ctx, "failed to save layer", "doc_id", docID, "error", err)
+		return fmt.Errorf("save layer doc %q: %w", docID, err)
+	}
+	r.logger.DebugContext(ctx, "saved layer", "doc_id", docID)
+	return nil
 }
 
 // GetMergedHierarchy fetches every layer snapshot and deep-merges them into a
@@ -51,9 +58,11 @@ func (r *FirestoreWorkspaceRepository) SaveLayer(ctx context.Context, layerID, t
 func (r *FirestoreWorkspaceRepository) GetMergedHierarchy(ctx context.Context) (*domain.Organization, error) {
 	docs, err := r.client.Collection("layers").Documents(ctx).GetAll()
 	if err != nil {
+		r.logger.ErrorContext(ctx, "failed to fetch layers", "error", err)
 		return nil, fmt.Errorf("failed to fetch layers: %w", err)
 	}
 	if len(docs) == 0 {
+		r.logger.WarnContext(ctx, "no layers found; nothing has been synced yet")
 		return nil, fmt.Errorf("no layers found")
 	}
 
@@ -63,9 +72,11 @@ func (r *FirestoreWorkspaceRepository) GetMergedHierarchy(ctx context.Context) (
 			Hierarchy *domain.Organization `firestore:"hierarchy"`
 		}
 		if err := doc.DataTo(&data); err != nil {
+			r.logger.ErrorContext(ctx, "failed to decode layer", "doc_id", doc.Ref.ID, "error", err)
 			return nil, fmt.Errorf("failed to decode layer %s: %w", doc.Ref.ID, err)
 		}
 		if data.Hierarchy == nil {
+			r.logger.WarnContext(ctx, "layer has no hierarchy payload; skipping", "doc_id", doc.Ref.ID)
 			continue
 		}
 		if merged == nil {
@@ -76,8 +87,10 @@ func (r *FirestoreWorkspaceRepository) GetMergedHierarchy(ctx context.Context) (
 	}
 
 	if merged == nil {
+		r.logger.WarnContext(ctx, "no valid hierarchy found in layers", "layer_count", len(docs))
 		return nil, fmt.Errorf("no valid hierarchy found in layers")
 	}
+	r.logger.DebugContext(ctx, "merged hierarchy", "layer_count", len(docs))
 	return merged, nil
 }
 
