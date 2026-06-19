@@ -31,6 +31,7 @@ type tfResource struct {
 		Attributes struct {
 			ID          string `json:"id"`
 			FolderID    string `json:"folder_id"`
+			OrgID       string `json:"org_id"`
 			DisplayName string `json:"display_name"`
 			Parent      string `json:"parent"`
 			ProjectID   string `json:"project_id"`
@@ -80,11 +81,20 @@ func (p *TofuParser) Parse(_ context.Context, stateData []byte, layerID, tfWorks
 				if pid == "" {
 					pid = strings.TrimPrefix(inst.Attributes.ID, "projects/")
 				}
-				projects[inst.Attributes.ID] = &domain.Project{
-					ID:          strings.TrimPrefix(inst.Attributes.ID, "projects/"),
+				// Real Terraform state stores folder_id/org_id separately, not a
+				// unified parent field. Derive parent from whichever is set.
+				parent := inst.Attributes.Parent
+				if parent == "" && inst.Attributes.FolderID != "" {
+					parent = "folders/" + inst.Attributes.FolderID
+				} else if parent == "" && inst.Attributes.OrgID != "" {
+					parent = "organizations/" + inst.Attributes.OrgID
+				}
+				bareID := strings.TrimPrefix(inst.Attributes.ID, "projects/")
+				projects[bareID] = &domain.Project{
+					ID:          bareID,
 					ProjectID:   pid,
 					DisplayName: inst.Attributes.DisplayName,
-					Parent:      inst.Attributes.Parent,
+					Parent:      parent,
 					LayerID:     layerID,
 					WorkspaceID: tfWorkspaceID,
 				}
@@ -99,10 +109,17 @@ func (p *TofuParser) Parse(_ context.Context, stateData []byte, layerID, tfWorks
 			continue
 		}
 		for _, inst := range res.Instances {
+			addr := res.Address
+			if addr == "" {
+				addr = res.Type + "." + res.Name
+				if res.Module != "" {
+					addr = res.Module + "." + addr
+				}
+			}
 			resource := &domain.Resource{
 				Type:        res.Type,
 				Name:        res.Name,
-				Address:     res.Address,
+				Address:     addr,
 				ID:          inst.Attributes.ID,
 				LayerID:     layerID,
 				WorkspaceID: tfWorkspaceID,
@@ -114,7 +131,7 @@ func (p *TofuParser) Parse(_ context.Context, stateData []byte, layerID, tfWorks
 
 	// Attach resources to matching projects.
 	for projPath, resources := range projectResources {
-		if proj, ok := projects["projects/"+projPath]; ok {
+		if proj, ok := projects[projPath]; ok {
 			proj.Resources = append(proj.Resources, resources...)
 		}
 		// resources without a matching project are silently dropped.

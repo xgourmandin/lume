@@ -327,13 +327,10 @@ async function buildLayers(pairs: { layerId: string; tfWorkspaceId: string }[]):
 
   const layerMap = new Map<string, Layer>();
 
-  for (const result of settled) {
-    const { layerId, tfWorkspaceId, drift } =
-      result.status === 'fulfilled'
-        ? result.value
-        : { layerId: (result as PromiseRejectedResult).reason?.layerId ?? '', tfWorkspaceId: '', drift: null };
-
-    if (!layerId) continue;
+  for (let i = 0; i < settled.length; i++) {
+    const result = settled[i];
+    const { layerId, tfWorkspaceId } = pairs[i];
+    const drift = result.status === 'fulfilled' ? result.value.drift : null;
 
     const tfWs: TerraformWorkspace = {
       id: tfWorkspaceId,

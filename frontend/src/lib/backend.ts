@@ -14,6 +14,13 @@ import { NextResponse } from 'next/server';
 export const BACKEND_URL =
   process.env.API_URL?.replace(/\/$/, '') ?? 'http://localhost:3000';
 
+// Backend sync operations (hierarchy sync-all in particular) can run for a long
+// time, so give proxied requests a generous timeout instead of relying on the
+// platform/undici defaults. Overridable via BACKEND_TIMEOUT_MS.
+const DEFAULT_BACKEND_TIMEOUT_MS = 5 * 60 * 1000;
+const BACKEND_TIMEOUT_MS =
+  Number(process.env.BACKEND_TIMEOUT_MS) || DEFAULT_BACKEND_TIMEOUT_MS;
+
 const METADATA_IDENTITY_URL =
   'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity';
 
@@ -161,20 +168,37 @@ export async function proxyBackend(
     headers.set(key, value);
   }
 
+  // Abort the request once the timeout elapses. If the caller already supplied
+  // a signal, honour whichever fires first.
+  const timeoutSignal = AbortSignal.timeout(BACKEND_TIMEOUT_MS);
+  const signal = init.signal
+    ? AbortSignal.any([init.signal, timeoutSignal])
+    : timeoutSignal;
+
   let res: Response;
   try {
-    res = await fetch(url, { cache: 'no-store', ...init, headers });
+    res = await fetch(url, { cache: 'no-store', ...init, headers, signal });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
+    const timedOut = timeoutSignal.aborted;
     log('ERROR', 'request.fetch_failed', {
       method,
       url,
       durationMs: Date.now() - startedAt,
+      timedOut,
+      timeoutMs: BACKEND_TIMEOUT_MS,
       // err.cause often holds the real reason (ECONNREFUSED, ENOTFOUND, timeout)
       cause: err instanceof Error && err.cause ? String(err.cause) : undefined,
       message,
     });
-    return NextResponse.json({ error: message }, { status: 502 });
+    return NextResponse.json(
+      {
+        error: timedOut
+          ? `Backend request timed out after ${BACKEND_TIMEOUT_MS}ms`
+          : message,
+      },
+      { status: timedOut ? 504 : 502 },
+    );
   }
 
   const durationMs = Date.now() - startedAt;

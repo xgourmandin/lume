@@ -464,9 +464,9 @@ function ResourceRow(props: {
     return (
         <div style={style}>
             <HierarchyNode
-                label={res.name}
+                label={res.address}
                 type="resource"
-                id={res.type}
+                id={res.id}
                 layerId={res.layer_id}
                 workspaceId={res.workspace_id ?? projectWorkspaceId}
                 isSelected={selectedNode?.type === 'resource' && selectedNode.data.address === res.address}
@@ -548,7 +548,7 @@ const ProjectNode: React.FC<ProjectNodeProps> = ({ project, selectedNode, onSele
 
     return (
         <HierarchyNode
-            label={project.display_name}
+            label={project.display_name || project.project_id}
             type="project"
             id={project.project_id}
             layerId={project.layer_id}
@@ -572,9 +572,9 @@ const ProjectNode: React.FC<ProjectNodeProps> = ({ project, selectedNode, onSele
                 visibleResources.map(res => (
                     <HierarchyNode
                         key={res.address}
-                        label={res.name}
+                        label={res.address}
                         type="resource"
-                        id={res.type}
+                        id={res.id}
                         layerId={res.layer_id}
                         workspaceId={res.workspace_id ?? project.workspace_id}
                         isSelected={selectedNode?.type === 'resource' && selectedNode.data.address === res.address}

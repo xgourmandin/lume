@@ -84,6 +84,6 @@ export interface DriftResult {
   add_count: number;
   change_count: number;
   destroy_count: number;
-  scanned_at: string; // ISO-8601
+  scanned_at?: string; // ISO-8601
   error_message?: string;
 }

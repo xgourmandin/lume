@@ -172,6 +172,6 @@ export async function fetchDriftResult(
     const key = `${layerId}--${tfWorkspaceId}`;
     const mock = MOCK_DRIFT_RESULTS[key];
     if (mock) return mock;
-    throw new Error('Drift result not available');
+    return { status: 'unknown', add_count: 0, change_count: 0, destroy_count: 0 };
   }
 }
