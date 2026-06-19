@@ -22,5 +22,12 @@ locals {
   # resolved registry base (tag: latest).
   backend_image_url  = var.backend_image != null ? var.backend_image : "${local.registry_base}/backend:latest"
   frontend_image_url = var.frontend_image != null ? var.frontend_image : "${local.registry_base}/frontend:latest"
+
+  # Repository-relative image name (e.g. "backend:latest"), i.e. everything
+  # after the "<location>-docker.pkg.dev/<project>/<repo>/" prefix. Consumed by
+  # the google_artifact_registry_docker_image data source to resolve the tag to
+  # an immutable digest so retags trigger a redeploy.
+  backend_image_name  = join("/", slice(split("/", local.backend_image_url), 3, length(split("/", local.backend_image_url))))
+  frontend_image_name = join("/", slice(split("/", local.frontend_image_url), 3, length(split("/", local.frontend_image_url))))
 }
 

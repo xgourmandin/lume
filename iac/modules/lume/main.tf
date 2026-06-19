@@ -46,6 +46,24 @@ data "google_artifact_registry_repository" "lume" {
   repository_id = local.artifact_registry_repo
 }
 
+# Resolve the mutable image tags to their current immutable digests. Referencing
+# self_link (which embeds the @sha256:... digest) from the Cloud Run services
+# means a retag of the same tag changes the resolved digest on the next plan and
+# forces a redeploy.
+data "google_artifact_registry_docker_image" "backend" {
+  project       = local.artifact_registry_project
+  location      = local.artifact_registry_location
+  repository_id = local.artifact_registry_repo
+  image_name    = local.backend_image_name
+}
+
+data "google_artifact_registry_docker_image" "frontend" {
+  project       = local.artifact_registry_project
+  location      = local.artifact_registry_location
+  repository_id = local.artifact_registry_repo
+  image_name    = local.frontend_image_name
+}
+
 resource "google_artifact_registry_repository_iam_member" "main" {
   member     = "serviceAccount:service-${data.google_project.project.number}@serverless-robot-prod.iam.gserviceaccount.com"
   project    = data.google_artifact_registry_repository.lume.project
@@ -136,7 +154,7 @@ resource "google_cloud_run_v2_service" "backend" {
     }
 
     containers {
-      image = local.backend_image_url
+      image = data.google_artifact_registry_docker_image.backend.self_link
 
       ports {
         container_port = 3000
@@ -193,7 +211,7 @@ resource "google_cloud_run_v2_service" "frontend" {
     }
 
     containers {
-      image = local.frontend_image_url
+      image = data.google_artifact_registry_docker_image.frontend.self_link
 
       ports {
         container_port = 3000
