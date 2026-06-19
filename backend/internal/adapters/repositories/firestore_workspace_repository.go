@@ -46,7 +46,6 @@ func (r *FirestoreWorkspaceRepository) SaveLayer(ctx context.Context, layerID, t
 		"hierarchy":    org,
 	})
 	if err != nil {
-		r.logger.ErrorContext(ctx, "failed to save layer", "doc_id", docID, "error", err)
 		return fmt.Errorf("save layer doc %q: %w", docID, err)
 	}
 	r.logger.DebugContext(ctx, "saved layer", "doc_id", docID)
@@ -58,11 +57,9 @@ func (r *FirestoreWorkspaceRepository) SaveLayer(ctx context.Context, layerID, t
 func (r *FirestoreWorkspaceRepository) GetMergedHierarchy(ctx context.Context) (*domain.Organization, error) {
 	docs, err := r.client.Collection("layers").Documents(ctx).GetAll()
 	if err != nil {
-		r.logger.ErrorContext(ctx, "failed to fetch layers", "error", err)
 		return nil, fmt.Errorf("failed to fetch layers: %w", err)
 	}
 	if len(docs) == 0 {
-		r.logger.WarnContext(ctx, "no layers found; nothing has been synced yet")
 		return nil, fmt.Errorf("no layers found")
 	}
 
@@ -72,7 +69,6 @@ func (r *FirestoreWorkspaceRepository) GetMergedHierarchy(ctx context.Context) (
 			Hierarchy *domain.Organization `firestore:"hierarchy"`
 		}
 		if err := doc.DataTo(&data); err != nil {
-			r.logger.ErrorContext(ctx, "failed to decode layer", "doc_id", doc.Ref.ID, "error", err)
 			return nil, fmt.Errorf("failed to decode layer %s: %w", doc.Ref.ID, err)
 		}
 		if data.Hierarchy == nil {
@@ -87,7 +83,6 @@ func (r *FirestoreWorkspaceRepository) GetMergedHierarchy(ctx context.Context) (
 	}
 
 	if merged == nil {
-		r.logger.WarnContext(ctx, "no valid hierarchy found in layers", "layer_count", len(docs))
 		return nil, fmt.Errorf("no valid hierarchy found in layers")
 	}
 	r.logger.DebugContext(ctx, "merged hierarchy", "layer_count", len(docs))

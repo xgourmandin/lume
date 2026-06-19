@@ -37,14 +37,12 @@ func NewGCSDownloader(logger *slog.Logger) (ports.StateDownloader, error) {
 func (d *GCSDownloader) DownloadState(ctx context.Context, bucketName, objectName string) ([]byte, error) {
 	rc, err := d.client.Bucket(bucketName).Object(objectName).NewReader(ctx)
 	if err != nil {
-		d.logger.ErrorContext(ctx, "failed to open object reader", "bucket", bucketName, "object", objectName, "error", err)
 		return nil, fmt.Errorf("open gs://%s/%s: %w", bucketName, objectName, err)
 	}
 	defer rc.Close()
 
 	data, err := io.ReadAll(rc)
 	if err != nil {
-		d.logger.ErrorContext(ctx, "failed to read object", "bucket", bucketName, "object", objectName, "error", err)
 		return nil, fmt.Errorf("read gs://%s/%s: %w", bucketName, objectName, err)
 	}
 
@@ -67,7 +65,6 @@ func (d *GCSDownloader) ListStateObjects(ctx context.Context) ([]string, error) 
 			break
 		}
 		if err != nil {
-			d.logger.ErrorContext(ctx, "failed to list bucket", "bucket", d.bucket, "scanned", scanned, "error", err)
 			return nil, fmt.Errorf("list bucket %q: %w", d.bucket, err)
 		}
 		scanned++

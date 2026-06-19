@@ -34,7 +34,7 @@ func (h *WebhookHandler) HandleWebhook(c *mach.Context) {
 
 	ctx := c.Request.Context()
 	if err := c.DecodeJSON(&body); err != nil {
-		h.logger.WarnContext(ctx, "invalid webhook body", "route", "POST /api/v1/webhooks/git", "status", 400, "error", err)
+		h.logger.WarnContext(ctx, "invalid webhook body", "error", err)
 		c.JSON(400, map[string]string{"error": "invalid request body"})
 		return
 	}
@@ -48,7 +48,7 @@ func (h *WebhookHandler) HandleWebhook(c *mach.Context) {
 
 	org, err := h.service.SyncWorkspace(ctx, body.LayerID, body.TFWorkspaceID, body.Bucket, body.Object)
 	if err != nil {
-		h.logger.ErrorContext(ctx, "webhook sync failed", "route", "POST /api/v1/webhooks/git", "status", 500,
+		h.logger.ErrorContext(ctx, "webhook sync failed",
 			"layer_id", body.LayerID, "tf_workspace", body.TFWorkspaceID, "bucket", body.Bucket, "object", body.Object, "error", err)
 		c.JSON(500, map[string]string{"error": err.Error()})
 		return
@@ -82,44 +82,43 @@ type gcsNotification struct {
 //   - "prod.tfstate"         → layer="default",  tfWorkspace="prod"
 func (h *WebhookHandler) HandleGCSNotification(c *mach.Context) {
 	ctx := c.Request.Context()
-	log := h.logger.With("route", "POST /api/v1/webhooks/gcs")
 
 	var envelope pubSubMessage
 	if err := c.DecodeJSON(&envelope); err != nil {
-		log.WarnContext(ctx, "invalid pubsub envelope", "status", 400, "error", err)
+		h.logger.WarnContext(ctx, "invalid pubsub envelope", "error", err)
 		c.JSON(400, map[string]string{"error": "invalid pubsub envelope"})
 		return
 	}
 
 	rawData, err := base64.StdEncoding.DecodeString(envelope.Message.Data)
 	if err != nil {
-		log.WarnContext(ctx, "invalid base64 in message.data", "status", 400, "error", err)
+		h.logger.WarnContext(ctx, "invalid base64 in message.data", "error", err)
 		c.JSON(400, map[string]string{"error": "invalid base64 in message.data"})
 		return
 	}
 
 	var notification gcsNotification
 	if err := json.Unmarshal(rawData, &notification); err != nil {
-		log.WarnContext(ctx, "invalid gcs notification payload", "status", 400, "error", err)
+		h.logger.WarnContext(ctx, "invalid gcs notification payload", "error", err)
 		c.JSON(400, map[string]string{"error": "invalid gcs notification payload"})
 		return
 	}
 
 	// Only process object creation/upload events for state files.
 	if notification.EventType != "OBJECT_FINALIZE" || !strings.HasSuffix(notification.Name, ".tfstate") {
-		log.DebugContext(ctx, "ignoring gcs notification", "event_type", notification.EventType, "object", notification.Name)
+		h.logger.DebugContext(ctx, "ignoring gcs notification", "event_type", notification.EventType, "object", notification.Name)
 		c.JSON(200, map[string]string{"status": "ignored"})
 		return
 	}
 
 	layerID, tfWorkspaceID := parseObjectPath(notification.Name)
-	log.InfoContext(ctx, "processing gcs notification",
+	h.logger.InfoContext(ctx, "processing gcs notification",
 		"event_type", notification.EventType, "bucket", notification.Bucket, "object", notification.Name,
 		"layer_id", layerID, "tf_workspace", tfWorkspaceID)
 
 	org, err := h.service.SyncWorkspace(ctx, layerID, tfWorkspaceID, notification.Bucket, notification.Name)
 	if err != nil {
-		log.ErrorContext(ctx, "gcs notification sync failed", "status", 500,
+		h.logger.ErrorContext(ctx, "gcs notification sync failed",
 			"bucket", notification.Bucket, "object", notification.Name, "error", err)
 		c.JSON(500, map[string]string{"error": err.Error()})
 		return

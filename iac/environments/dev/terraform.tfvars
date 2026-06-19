@@ -4,5 +4,5 @@
 
 project_id            = "d-hes-lume-prj-001"
 region                = "europe-west1"
-bucket_name           = "lume-iac-state-e6e0"
+bucket_name           = "hes-landing-zone-tfstates"
 artifact_registry_url = "europe-docker.pkg.dev/d-hes-lume-cicd-prj-001/lume"

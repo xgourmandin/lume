@@ -31,7 +31,7 @@ func (h *WorkspaceHandler) Register(app *mach.App) {
 func (h *WorkspaceHandler) GetHierarchy(c *mach.Context) {
 	hierarchy, err := h.repo.GetMergedHierarchy(c.Request.Context())
 	if err != nil {
-		h.logger.WarnContext(c.Request.Context(), "get hierarchy failed", "route", "GET /api/v1/hierarchy", "status", 404, "error", err)
+		h.logger.WarnContext(c.Request.Context(), "get hierarchy failed", "error", err)
 		c.JSON(404, map[string]string{"error": "hierarchy not found"})
 		return
 	}
@@ -47,7 +47,7 @@ func (h *WorkspaceHandler) GetDriftResult(c *mach.Context) {
 	result, err := h.repo.GetDriftResult(c.Request.Context(), layerID, tfWorkspace)
 	if err != nil {
 		h.logger.WarnContext(c.Request.Context(), "get drift result failed",
-			"route", "GET /api/v1/drift", "status", 404, "layer_id", layerID, "tf_workspace", tfWorkspace, "error", err)
+			"layer_id", layerID, "tf_workspace", tfWorkspace, "error", err)
 		c.JSON(404, map[string]string{"error": "drift result not found"})
 		return
 	}
@@ -65,18 +65,18 @@ func (h *WorkspaceHandler) ReportDrift(c *mach.Context) {
 	ctx := c.Request.Context()
 	layerID := c.Param("layerId")
 	tfWorkspace := c.Param("tfWorkspace")
-	log := h.logger.With("route", "POST /api/v1/drift", "layer_id", layerID, "tf_workspace", tfWorkspace)
+	log := h.logger.With("layer_id", layerID, "tf_workspace", tfWorkspace)
 
 	// Parse up to 32 MB of multipart data.
 	if err := c.Request.ParseMultipartForm(32 << 20); err != nil {
-		log.WarnContext(ctx, "invalid multipart form", "status", 400, "error", err)
+		log.WarnContext(ctx, "invalid multipart form", "error", err)
 		c.JSON(400, map[string]string{"error": "expected multipart/form-data request"})
 		return
 	}
 
 	file, _, err := c.Request.FormFile("plan")
 	if err != nil {
-		log.WarnContext(ctx, "missing 'plan' file field", "status", 400, "error", err)
+		log.WarnContext(ctx, "missing 'plan' file field", "error", err)
 		c.JSON(400, map[string]string{"error": "missing 'plan' file field"})
 		return
 	}
@@ -84,20 +84,20 @@ func (h *WorkspaceHandler) ReportDrift(c *mach.Context) {
 
 	planData, err := io.ReadAll(file)
 	if err != nil {
-		log.ErrorContext(ctx, "failed to read plan file", "status", 500, "error", err)
+		log.ErrorContext(ctx, "failed to read plan file", "error", err)
 		c.JSON(500, map[string]string{"error": "failed to read plan file"})
 		return
 	}
 
 	result, err := h.planParser.ParseDrift(ctx, planData)
 	if err != nil {
-		log.WarnContext(ctx, "failed to parse drift plan", "status", 400, "plan_bytes", len(planData), "error", err)
+		log.WarnContext(ctx, "failed to parse drift plan", "plan_bytes", len(planData), "error", err)
 		c.JSON(400, map[string]string{"error": err.Error()})
 		return
 	}
 
 	if err := h.repo.SaveDriftResult(ctx, layerID, tfWorkspace, result); err != nil {
-		log.ErrorContext(ctx, "failed to save drift result", "status", 500, "error", err)
+		log.ErrorContext(ctx, "failed to save drift result", "error", err)
 		c.JSON(500, map[string]string{"error": err.Error()})
 		return
 	}
@@ -128,7 +128,7 @@ func (h *WorkspaceHandler) SyncHierarchy(c *mach.Context) {
 
 	ctx := c.Request.Context()
 	if err := c.DecodeJSON(&body); err != nil {
-		h.logger.WarnContext(ctx, "invalid sync request body", "route", "POST /api/v1/hierarchy/sync", "status", 400, "error", err)
+		h.logger.WarnContext(ctx, "invalid sync request body", "error", err)
 		c.JSON(400, map[string]string{"error": "invalid request body"})
 		return
 	}
@@ -148,7 +148,7 @@ func (h *WorkspaceHandler) SyncHierarchy(c *mach.Context) {
 		body.Object,
 	)
 	if err != nil {
-		h.logger.ErrorContext(ctx, "sync request failed", "route", "POST /api/v1/hierarchy/sync", "status", 500,
+		h.logger.ErrorContext(ctx, "sync request failed",
 			"layer_id", body.LayerID, "tf_workspace", body.TFWorkspaceID, "bucket", body.Bucket, "object", body.Object, "error", err)
 		c.JSON(500, map[string]string{"error": err.Error()})
 		return
@@ -176,7 +176,13 @@ func (h *WorkspaceHandler) SyncAllHierarchy(c *mach.Context) {
 	ctx := c.Request.Context()
 	result, err := h.service.SyncAllWorkspaces(ctx)
 	if err != nil {
-		h.logger.ErrorContext(ctx, "sync-all request failed", "route", "POST /api/v1/hierarchy/sync-all", "status", 500, "error", err)
+		// result is non-nil when objects were synced but the final merge failed;
+		// surface the per-object causes that led to the opaque 500.
+		attrs := []any{"error", err}
+		if result != nil {
+			attrs = append(attrs, "synced", result.Synced, "failed", result.Failed, "object_errors", result.Errors)
+		}
+		h.logger.ErrorContext(ctx, "sync-all request failed", attrs...)
 		c.JSON(500, map[string]string{"error": err.Error()})
 		return
 	}

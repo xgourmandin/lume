@@ -14,10 +14,10 @@ import (
 )
 
 // NewServer initializes the Mach application.
-func NewServer(webhookHandler *http.WebhookHandler, workspaceHandler *http.WorkspaceHandler) *mach.App {
+func NewServer(webhookHandler *http.WebhookHandler, workspaceHandler *http.WorkspaceHandler, logger *slog.Logger) *mach.App {
 	app := mach.New()
 
-	app.Use(mach.Logger())
+	app.Use(http.RequestLogger(logger))
 	app.Use(mach.Recovery())
 
 	app.Use(mach.CORS([]string{"*"}))
